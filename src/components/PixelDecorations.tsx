@@ -180,42 +180,6 @@ export const PixelDecorations: React.FC<PixelDecorationsProps> = ({ category }) 
   return (
     <div className="fixed inset-0 pointer-events-none overflow-hidden z-0 select-none">
 
-      {/* ================= UNIVERSAL INDIE CHARACTERS (ALL CATEGORIES) ================= */}
-
-      {/* 1. Green Junimo Sprite */}
-      <div className="absolute left-6 bottom-5 z-0 opacity-80 hidden sm:block animate-float-gentle">
-        <div className="relative w-10 h-10 flex flex-col items-center">
-          <div className="w-1.5 h-2 bg-lime-400 rounded-t-full shadow" />
-          <div className="w-9 h-8 bg-[#4ade80] border-2 border-[#166534] rounded-full shadow-lg flex items-center justify-around px-1.5">
-            <div className="w-1.5 h-1.5 bg-black rounded-full" />
-            <div className="w-1.5 h-1.5 bg-black rounded-full" />
-          </div>
-          <div className="absolute bottom-2 flex justify-between w-5 px-0.5">
-            <div className="w-1 h-1 bg-rose-400/80 rounded-full" />
-            <div className="w-1 h-1 bg-rose-400/80 rounded-full" />
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Pink Junimo Sprite with Star */}
-      <div className="absolute right-8 top-14 z-0 opacity-75 hidden md:block animate-float-sway" style={{ animationDelay: '-1.5s' }}>
-        <div className="relative w-9 h-9 flex flex-col items-center">
-          <div className="w-1 h-2 bg-pink-300 rounded-t-full" />
-          <div className="w-8 h-7 bg-[#f472b6] border-2 border-[#9d174d] rounded-full shadow-lg flex items-center justify-around px-1">
-            <div className="w-1 h-1.5 bg-black rounded-full" />
-            <div className="w-1 h-1.5 bg-black rounded-full" />
-          </div>
-          <div className="absolute -top-2 -right-1 text-xs text-yellow-300 animate-spin">
-            ✨
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Magic Stardew Cat */}
-      <div className="absolute right-4 bottom-3 text-2xl opacity-65 hidden lg:block animate-float-bob-alt" style={{ animationDelay: '-2.6s' }}>
-        🐱
-      </div>
-
       {/* ================= MUSIC CATEGORY: 6 STATIC DRAWINGS ================= */}
       {showMusic && (
         <>
