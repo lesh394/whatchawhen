@@ -23,8 +23,66 @@ interface AnchorSlot {
   right?: number;
 }
 
+type ViewportTier = 'mobile' | 'landscape' | 'tablet' | 'desktop';
+
+// 6 non-overlapping corner/flank zones for portrait phones (<640px) in single-category modes
+const MOBILE_SLOTS: AnchorSlot[] = [
+  { top: 7.5, left: 1.2 },
+  { top: 7.5, right: 1.2 },
+  { top: 29.0, left: 0.8 },
+  { top: 30.0, right: 0.8 },
+  { bottom: 2.0, left: 1.4 },
+  { bottom: 2.0, right: 1.4 },
+];
+
+// 8 well-spaced perimeter zones for portrait phones (<640px) in Everything Mix so all 3 categories fill top, flanks, and bottom without clustering
+const MOBILE_DENSE_SLOTS: AnchorSlot[] = [
+  { top: 7.5, left: 1.0 },
+  { top: 30.5, left: 0.8 },
+  { top: 55.5, left: 1.0 },
+  { bottom: 2.0, left: 1.4 },
+  { top: 7.5, right: 1.0 },
+  { top: 30.5, right: 0.8 },
+  { top: 55.5, right: 1.0 },
+  { bottom: 2.0, right: 1.4 },
+];
+
+// 6 wide horizontal corner zones for short landscape phones (height < 580px) so props never stack on top of each other vertically
+const LANDSCAPE_SLOTS: AnchorSlot[] = [
+  { top: 10.5, left: 1.2 },
+  { top: 10.5, right: 1.2 },
+  { bottom: 3.0, left: 1.2 },
+  { bottom: 3.0, right: 1.2 },
+  { bottom: 3.0, left: 18.5 },
+  { bottom: 3.0, right: 18.5 },
+];
+
+// 6 perimeter zones for portrait/small tablets (640px-1023px) single-category views
+const TABLET_SINGLE_SLOTS: AnchorSlot[] = [
+  { top: 8.5, left: 1.4 },
+  { top: 37.5, left: 1.0 },
+  { bottom: 4.0, left: 1.6 },
+  { top: 8.5, right: 1.4 },
+  { top: 37.5, right: 1.0 },
+  { bottom: 4.0, right: 1.6 },
+];
+
+// 10 staggered perimeter slots for portrait/small tablets (640px-1023px) in Everything Mix
+const TABLET_DENSE_SLOTS: AnchorSlot[] = [
+  { top: 8.0, left: 1.2 },
+  { top: 31.5, left: 1.0 },
+  { top: 55.0, left: 1.2 },
+  { bottom: 3.5, left: 1.4 },
+  { bottom: 2.8, left: 20.5 },
+  { top: 8.0, right: 1.2 },
+  { top: 31.5, right: 1.0 },
+  { top: 55.0, right: 1.2 },
+  { bottom: 3.5, right: 1.4 },
+  { bottom: 2.8, right: 20.5 },
+];
+
 // 18 staggered perimeter slots distributed around the outer margins, corners, and upper/lower air pockets
-// so ALL 18 static drawings remain visible in Everything mode while keeping the center card & title clear.
+// so ALL 18 static drawings remain visible in Everything mode on wide desktop screens while keeping the center card & title clear.
 const PERIMETER_SLOTS: AnchorSlot[] = [
   // Left outer column (4 vertical zones)
   { top: 9, left: 1.4 },
@@ -99,104 +157,202 @@ function shuffleArray<T>(arr: readonly T[]): T[] {
   return copy;
 }
 
-function buildPlacementMap(ids: readonly string[], slotPool: readonly AnchorSlot[], isDense: boolean): Record<string, PlacedProp> {
+function buildPlacementMap(
+  ids: readonly string[],
+  slotPool: readonly AnchorSlot[],
+  tier: ViewportTier,
+  isDense: boolean
+): Record<string, PlacedProp> {
   const shuffledSlots = shuffleArray(slotPool);
   const map: Record<string, PlacedProp> = {};
 
   ids.forEach((id, idx) => {
     const base = shuffledSlots[idx % shuffledSlots.length];
-    const jitterX = (Math.random() - 0.5) * (isDense ? 1.8 : 2.6);
-    const jitterY = (Math.random() - 0.5) * (isDense ? 2.4 : 4.2);
+    const isCompact = tier === 'mobile' || tier === 'landscape';
+    const jitterMult = isCompact ? 0.4 : tier === 'tablet' ? 0.65 : 1;
+    const jitterX = (Math.random() - 0.5) * (isDense ? 1.8 : 2.6) * jitterMult;
+    const jitterY = (Math.random() - 0.5) * (isDense ? 2.4 : 4.2) * jitterMult;
 
     const posStyle: React.CSSProperties = {
       transformOrigin: `${base.top !== undefined ? 'top' : 'bottom'} ${base.left !== undefined ? 'left' : 'right'}`,
     };
-    if (base.top !== undefined) posStyle.top = `${Math.max(7, Math.min(76, base.top + jitterY)).toFixed(1)}%`;
-    if (base.bottom !== undefined) posStyle.bottom = `${Math.max(3, Math.min(20, base.bottom + jitterY)).toFixed(1)}%`;
-    if (base.left !== undefined) posStyle.left = `${Math.max(0.8, Math.min(isDense ? 23.5 : 6.2, base.left + jitterX)).toFixed(1)}%`;
-    if (base.right !== undefined) posStyle.right = `${Math.max(0.8, Math.min(isDense ? 23.5 : 6.2, base.right + jitterX)).toFixed(1)}%`;
+    const minTop = isCompact ? 7.0 : 7;
+    const maxHorizontal =
+      tier === 'mobile'
+        ? 4.0
+        : tier === 'landscape'
+        ? 20.5
+        : tier === 'tablet'
+        ? isDense
+          ? 22.5
+          : 5.0
+        : isDense
+        ? 23.5
+        : 6.2;
+
+    if (base.top !== undefined) posStyle.top = `${Math.max(minTop, Math.min(76, base.top + jitterY)).toFixed(1)}%`;
+    if (base.bottom !== undefined) posStyle.bottom = `${Math.max(1.8, Math.min(20, base.bottom + jitterY)).toFixed(1)}%`;
+    if (base.left !== undefined) posStyle.left = `${Math.max(0.8, Math.min(maxHorizontal, base.left + jitterX)).toFixed(1)}%`;
+    if (base.right !== undefined) posStyle.right = `${Math.max(0.8, Math.min(maxHorizontal, base.right + jitterX)).toFixed(1)}%`;
+
+    let scale: number;
+    let opacityClass: string;
+    if (isCompact) {
+      scale = Number((0.46 + Math.random() * 0.08).toFixed(2));
+      opacityClass = isDense ? 'opacity-60' : 'opacity-65';
+    } else if (tier === 'tablet') {
+      scale = Number((isDense ? 0.56 + Math.random() * 0.08 : 0.68 + Math.random() * 0.1).toFixed(2));
+      opacityClass = isDense ? 'opacity-65 md:opacity-75' : 'opacity-70 md:opacity-80';
+    } else {
+      scale = Number((isDense ? 0.92 + Math.random() * 0.16 : 1.18 + Math.random() * 0.16).toFixed(2));
+      opacityClass = isDense ? 'opacity-65 lg:opacity-80' : 'opacity-75 lg:opacity-88';
+    }
 
     map[id] = {
       id,
       posStyle,
-      tiltDeg: Number(((Math.random() - 0.5) * 14).toFixed(1)),
-      scale: Number((isDense ? 0.92 + Math.random() * 0.16 : 1.18 + Math.random() * 0.16).toFixed(2)),
+      tiltDeg: Number(((Math.random() - 0.5) * (isCompact ? 10 : 14)).toFixed(1)),
+      scale,
       floatClass: FLOAT_CLASSES[idx % FLOAT_CLASSES.length],
       floatDuration: `${(4.2 + Math.random() * 2.6).toFixed(1)}s`,
       floatDelay: `-${(Math.random() * 5).toFixed(1)}s`,
-      opacityClass: isDense ? 'opacity-65 lg:opacity-80' : 'opacity-75 lg:opacity-88',
+      opacityClass,
     };
   });
 
   return map;
 }
 
-function createAllCategoryLayouts(): Record<Category, Record<string, PlacedProp>> {
+function pickBalancedMixIds(countPerCat: number, extraCount = 0): string[] {
+  const m = shuffleArray(MUSIC_PROP_IDS);
+  const b = shuffleArray(BOOKS_PROP_IDS);
+  const a = shuffleArray(ART_PROP_IDS);
+  const picked = [
+    ...m.slice(0, countPerCat),
+    ...b.slice(0, countPerCat),
+    ...a.slice(0, countPerCat),
+  ];
+  if (extraCount > 0) {
+    const leftovers = shuffleArray([
+      ...m.slice(countPerCat),
+      ...b.slice(countPerCat),
+      ...a.slice(countPerCat),
+    ]);
+    picked.push(...leftovers.slice(0, extraCount));
+  }
+  return picked;
+}
+
+function createAllTierLayouts(): Record<ViewportTier, Record<Category, Record<string, PlacedProp>>> {
+  const desktopEverythingIds = [...MUSIC_PROP_IDS, ...BOOKS_PROP_IDS, ...ART_PROP_IDS];
+  const tabletEverythingIds = pickBalancedMixIds(3, 1); // 10 evenly balanced mixed items
+  const mobileEverythingIds = pickBalancedMixIds(2, 2); // 8 balanced mixed items (all 3 categories well represented)
+  const landscapeEverythingIds = pickBalancedMixIds(2, 0); // 6 balanced mixed items for short landscape screens
+
   return {
-    music: buildPlacementMap(MUSIC_PROP_IDS, SINGLE_CAT_PREFERRED_SLOTS, false),
-    books: buildPlacementMap(BOOKS_PROP_IDS, SINGLE_CAT_PREFERRED_SLOTS, false),
-    art: buildPlacementMap(ART_PROP_IDS, SINGLE_CAT_PREFERRED_SLOTS, false),
-    everything: buildPlacementMap(
-      [...MUSIC_PROP_IDS, ...BOOKS_PROP_IDS, ...ART_PROP_IDS],
-      PERIMETER_SLOTS,
-      true
-    ),
+    mobile: {
+      music: buildPlacementMap(MUSIC_PROP_IDS, MOBILE_SLOTS, 'mobile', false),
+      books: buildPlacementMap(BOOKS_PROP_IDS, MOBILE_SLOTS, 'mobile', false),
+      art: buildPlacementMap(ART_PROP_IDS, MOBILE_SLOTS, 'mobile', false),
+      everything: buildPlacementMap(mobileEverythingIds, MOBILE_DENSE_SLOTS, 'mobile', true),
+    },
+    landscape: {
+      music: buildPlacementMap(MUSIC_PROP_IDS, LANDSCAPE_SLOTS, 'landscape', false),
+      books: buildPlacementMap(BOOKS_PROP_IDS, LANDSCAPE_SLOTS, 'landscape', false),
+      art: buildPlacementMap(ART_PROP_IDS, LANDSCAPE_SLOTS, 'landscape', false),
+      everything: buildPlacementMap(landscapeEverythingIds, LANDSCAPE_SLOTS, 'landscape', true),
+    },
+    tablet: {
+      music: buildPlacementMap(MUSIC_PROP_IDS, TABLET_SINGLE_SLOTS, 'tablet', false),
+      books: buildPlacementMap(BOOKS_PROP_IDS, TABLET_SINGLE_SLOTS, 'tablet', false),
+      art: buildPlacementMap(ART_PROP_IDS, TABLET_SINGLE_SLOTS, 'tablet', false),
+      everything: buildPlacementMap(tabletEverythingIds, TABLET_DENSE_SLOTS, 'tablet', true),
+    },
+    desktop: {
+      music: buildPlacementMap(MUSIC_PROP_IDS, SINGLE_CAT_PREFERRED_SLOTS, 'desktop', false),
+      books: buildPlacementMap(BOOKS_PROP_IDS, SINGLE_CAT_PREFERRED_SLOTS, 'desktop', false),
+      art: buildPlacementMap(ART_PROP_IDS, SINGLE_CAT_PREFERRED_SLOTS, 'desktop', false),
+      everything: buildPlacementMap(desktopEverythingIds, PERIMETER_SLOTS, 'desktop', true),
+    },
   };
 }
 
 interface PropWrapperProps {
-  placement: PlacedProp;
+  placement?: PlacedProp;
   children: React.ReactNode;
 }
 
-const FloatingProp: React.FC<PropWrapperProps> = ({ placement, children }) => (
-  <div
-    className={`hidden lg:block absolute z-0 pointer-events-none select-none ${placement.opacityClass}`}
-    style={{
-      ...placement.posStyle,
-      transform: `rotate(${placement.tiltDeg}deg) scale(${placement.scale})`,
-    }}
-  >
+const FloatingProp: React.FC<PropWrapperProps> = ({ placement, children }) => {
+  if (!placement) return null;
+  return (
     <div
-      className={placement.floatClass}
+      className={`absolute z-0 pointer-events-none select-none ${placement.opacityClass}`}
       style={{
-        animationDuration: placement.floatDuration,
-        animationDelay: placement.floatDelay,
+        ...placement.posStyle,
+        transform: `rotate(${placement.tiltDeg}deg) scale(${placement.scale})`,
       }}
     >
-      {children}
+      <div
+        className={placement.floatClass}
+        style={{
+          animationDuration: placement.floatDuration,
+          animationDelay: placement.floatDelay,
+        }}
+      >
+        {children}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
-function subscribeWideViewport(callback: () => void): () => void {
+function subscribeViewportTier(callback: () => void): () => void {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
     return () => {};
   }
-  const mq = window.matchMedia('(min-width: 1024px)');
-  mq.addEventListener('change', callback);
-  return () => mq.removeEventListener('change', callback);
+  const mqDesktop = window.matchMedia('(min-width: 1024px)');
+  const mqTablet = window.matchMedia('(min-width: 640px)');
+  const mqTall = window.matchMedia('(min-height: 580px)');
+  mqDesktop.addEventListener('change', callback);
+  mqTablet.addEventListener('change', callback);
+  mqTall.addEventListener('change', callback);
+  return () => {
+    mqDesktop.removeEventListener('change', callback);
+    mqTablet.removeEventListener('change', callback);
+    mqTall.removeEventListener('change', callback);
+  };
 }
 
-function getWideViewportSnapshot(): boolean {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-    ? window.matchMedia('(min-width: 1024px)').matches
-    : false;
+function getViewportTierSnapshot(): ViewportTier {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return 'mobile';
+  }
+  const isTallEnough = window.matchMedia('(min-height: 580px)').matches;
+  const isTabletWide = window.matchMedia('(min-width: 640px)').matches;
+  const isDesktopWide = window.matchMedia('(min-width: 1024px)').matches;
+
+  if (!isTallEnough) {
+    return isTabletWide ? 'landscape' : 'mobile';
+  }
+  if (isDesktopWide) return 'desktop';
+  if (isTabletWide) return 'tablet';
+  return 'mobile';
 }
 
 export const PixelDecorations: React.FC<PixelDecorationsProps> = ({ category }) => {
-  const [layouts] = useState<Record<Category, Record<string, PlacedProp>>>(createAllCategoryLayouts);
-  const showWideProps = useSyncExternalStore(
-    subscribeWideViewport,
-    getWideViewportSnapshot,
-    () => false
+  const [layouts] = useState<Record<ViewportTier, Record<Category, Record<string, PlacedProp>>>>(
+    createAllTierLayouts
+  );
+  const viewportTier = useSyncExternalStore(
+    subscribeViewportTier,
+    getViewportTierSnapshot,
+    () => 'desktop'
   );
 
-  const activeLayout = layouts[category];
+  const activeLayout = layouts[viewportTier][category];
 
-  const showMusic = showWideProps && (category === 'music' || category === 'everything');
-  const showBooks = showWideProps && (category === 'books' || category === 'everything');
-  const showArt = showWideProps && (category === 'art' || category === 'everything');
+  const showMusic = category === 'music' || category === 'everything';
+  const showBooks = category === 'books' || category === 'everything';
+  const showArt = category === 'art' || category === 'everything';
 
   return (
     <div className="fixed inset-0 pointer-events-none overflow-hidden z-0 select-none">
@@ -586,8 +742,8 @@ export const PixelDecorations: React.FC<PixelDecorationsProps> = ({ category }) 
           {/* Gallery Spotlights Beam Effect (Art mode) */}
           {category === 'art' && (
             <>
-              <div className="hidden lg:block absolute left-12 top-0 w-36 h-72 bg-yellow-400/8 blur-3xl rotate-12 pointer-events-none" />
-              <div className="hidden lg:block absolute right-12 top-0 w-36 h-72 bg-amber-400/8 blur-3xl -rotate-12 pointer-events-none" />
+              <div className="hidden md:block absolute left-12 top-0 w-36 h-72 bg-yellow-400/8 blur-3xl rotate-12 pointer-events-none" />
+              <div className="hidden md:block absolute right-12 top-0 w-36 h-72 bg-amber-400/8 blur-3xl -rotate-12 pointer-events-none" />
             </>
           )}
 
