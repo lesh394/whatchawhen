@@ -28,10 +28,32 @@ const VERIFIED_ART_GENERAL_CATEGORIES: string[] = [
   'Category:Paintings_in_the_Art_Institute_of_Chicago',
   'Category:Paintings_in_the_National_Gallery,_London',
   "Category:Paintings_in_the_Musée_d'Orsay",
+  'Category:Paintings_in_the_Uffizi',
+  'Category:Paintings_in_the_Rijksmuseum',
+  'Category:Paintings_in_the_Hermitage_Museum',
+  'Category:Paintings_in_the_National_Gallery_of_Art',
+  'Category:Paintings_in_the_Museum_of_Fine_Arts,_Boston',
+  'Category:Paintings_in_the_Cleveland_Museum_of_Art',
+  'Category:Paintings_in_the_Kunsthistorisches_Museum',
+  'Category:Paintings_in_the_Philadelphia_Museum_of_Art',
+  'Category:Paintings_in_the_Victoria_and_Albert_Museum',
+  'Category:Paintings_in_the_Gemäldegalerie,_Berlin',
   'Category:Renaissance_paintings',
   'Category:Baroque_paintings',
   'Category:Impressionist_paintings',
   'Category:Surrealist_paintings',
+  'Category:Dutch_Golden_Age_paintings',
+  'Category:Romantic_paintings',
+  'Category:Realist_paintings',
+  'Category:Neoclassical_paintings',
+  'Category:Symbolist_paintings',
+  'Category:Cubist_paintings',
+  'Category:Mannerist_paintings',
+  'Category:16th-century_paintings',
+  'Category:17th-century_paintings',
+  'Category:18th-century_paintings',
+  'Category:19th-century_paintings',
+  'Category:20th-century_paintings',
 ];
 
 const VERIFIED_ART_ARTIST_CATEGORIES: string[] = [
@@ -40,6 +62,20 @@ const VERIFIED_ART_ARTIST_CATEGORIES: string[] = [
   'Category:Paintings_by_Rembrandt',
   'Category:Paintings_by_Pablo_Picasso',
   'Category:Paintings_by_Salvador_Dalí',
+  'Category:Paintings_by_Paul_Cézanne',
+  'Category:Paintings_by_Pierre-Auguste_Renoir',
+  'Category:Paintings_by_Édouard_Manet',
+  'Category:Paintings_by_Edgar_Degas',
+  'Category:Paintings_by_Francisco_Goya',
+  'Category:Paintings_by_Peter_Paul_Rubens',
+  'Category:Paintings_by_Caravaggio',
+  'Category:Paintings_by_J._M._W._Turner',
+  'Category:Paintings_by_Henri_Matisse',
+  'Category:Paintings_by_Edward_Hopper',
+  'Category:Paintings_by_Gustav_Klimt',
+  'Category:Paintings_by_Camille_Pissarro',
+  'Category:Paintings_by_Paul_Gauguin',
+  'Category:Paintings_by_John_Singer_Sargent',
 ];
 
 const VERIFIED_BOOK_LANDMARK_CATEGORIES: string[] = [
@@ -47,16 +83,43 @@ const VERIFIED_BOOK_LANDMARK_CATEGORIES: string[] = [
   'Category:American_science_fiction_novels',
   'Category:British_science_fiction_novels',
   'Category:American_fantasy_novels',
+  'Category:British_fantasy_novels',
   'Category:Historical_novels',
+  'Category:American_historical_novels',
+  'Category:British_historical_novels',
+  'Category:Satirical_novels',
+  'Category:Post-apocalyptic_novels',
+  'Category:War_novels',
+  'Category:Philosophical_novels',
+  'Category:Thriller_novels',
+  'Category:Bildungsromans',
+  'Category:Detective_novels',
   'Category:1886_novels',
   'Category:1897_novels',
+  'Category:1901_novels',
+  'Category:1908_novels',
   'Category:1911_novels',
   'Category:1925_novels',
   'Category:1932_novels',
 ];
 
-// Omit late sparse prefixes (O/W/Z) so small categories always yield plenty of pictured entries
-const SORT_PREFIXES = 'ABCDEFGHJLMNPST';
+const SORT_PREFIXES = 'ABCDEFGHIJKLMNOPRSTUVW';
+const SORT_SUBPREFIXES = [
+  'Ab', 'Al', 'An', 'Ar', 'As', 'At', 'Ba', 'Be', 'Bi', 'Bl', 'Bo', 'Br', 'Bu',
+  'Ca', 'Ch', 'Ci', 'Cl', 'Co', 'Cr', 'Da', 'De', 'Di', 'Do', 'Dr', 'Ea', 'El',
+  'Em', 'En', 'Es', 'Ev', 'Fa', 'Fe', 'Fi', 'Fl', 'Fo', 'Fr', 'Ga', 'Ge', 'Gi',
+  'Go', 'Gr', 'Gu', 'Ha', 'He', 'Hi', 'Ho', 'Hu', 'Il', 'Im', 'In', 'It', 'Ja',
+  'Je', 'Jo', 'Ju', 'Ka', 'Ke', 'Ki', 'Ko', 'La', 'Le', 'Li', 'Lo', 'Lu', 'Ma',
+  'Me', 'Mi', 'Mo', 'Mu', 'My', 'Na', 'Ne', 'Ni', 'No', 'Nu', 'Ob', 'Od', 'Of',
+  'Ol', 'On', 'Op', 'Or', 'Ou', 'Pa', 'Pe', 'Ph', 'Pi', 'Pl', 'Po', 'Pr', 'Pu',
+  'Qu', 'Ra', 'Re', 'Ri', 'Ro', 'Ru', 'Sa', 'Sc', 'Se', 'Sh', 'Si', 'Sk', 'Sl',
+  'Sm', 'So', 'Sp', 'St', 'Su', 'Sw', 'Sy', 'Ta', 'Te', 'Th', 'Ti', 'To', 'Tr',
+  'Tu', 'Tw', 'Un', 'Va', 'Ve', 'Vi', 'Vo', 'Wa', 'We', 'Wh', 'Wi', 'Wo', 'Ye',
+  'Yo',
+];
+
+const SOLO_SEEN_STORAGE_KEY = 'whatchawhen_solo_seen_v1';
+const MAX_PERSISTED_SEEN_ENTRIES = 2500;
 
 // In-memory live round queues + random distractor banks populated directly from Wikipedia
 const liveQueue: Record<WorkCategory, CulturalItem[]> = {
@@ -73,6 +136,135 @@ const liveDistractorBank: Record<WorkCategory, CulturalItem[]> = {
 
 const inflightQueueRefills: Partial<Record<WorkCategory, Promise<void>>> = {};
 const seenSlugsSession = new Set<string>();
+const seenPageIdsSession = new Set<number>();
+const seenWorkKeysSession = new Set<string>();
+const persistedSeenRing: Array<{ s?: string; k?: string; p?: number }> = [];
+let seenStorageHydrated = false;
+
+function normalizeWorkPart(raw: string): string {
+  return (raw || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s*\([^)]*\)\s*$/g, '')
+    .replace(/^(?:the|a|an)\s+/i, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function toCanonicalWorkKey(
+  category: WorkCategory,
+  title: string,
+  creator?: string
+): string {
+  const normTitle = normalizeWorkPart(title);
+  const rawCreator = (creator || '').trim().toLowerCase();
+  const isGeneric =
+    !rawCreator ||
+    rawCreator === 'acclaimed musician' ||
+    rawCreator === 'acclaimed author' ||
+    rawCreator === 'master painter' ||
+    rawCreator === 'acclaimed creator';
+  const normCreator = isGeneric ? '' : normalizeWorkPart(creator || '');
+  return normCreator ? `${category}:${normTitle}::${normCreator}` : `${category}:${normTitle}`;
+}
+
+function hydrateSeenStorage() {
+  if (seenStorageHydrated) return;
+  seenStorageHydrated = true;
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const raw = localStorage.getItem(SOLO_SEEN_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') continue;
+      const slug = typeof entry.s === 'string' ? entry.s : '';
+      const key = typeof entry.k === 'string' ? entry.k : '';
+      const pageId = typeof entry.p === 'number' && entry.p > 0 ? entry.p : 0;
+      if (slug) {
+        seenSlugsSession.add(slug);
+        seenSlugsSession.add(slug.toLowerCase());
+      }
+      if (key) seenWorkKeysSession.add(key);
+      if (pageId > 0) seenPageIdsSession.add(pageId);
+      persistedSeenRing.push({
+        ...(slug ? { s: slug } : {}),
+        ...(key ? { k: key } : {}),
+        ...(pageId > 0 ? { p: pageId } : {}),
+      });
+    }
+  } catch {
+    // Ignore malformed storage
+  }
+}
+
+export function isWorkSeen(
+  item: Pick<CulturalItem, 'id' | 'category' | 'title' | 'creator' | 'wikiSlug' | 'wikiPageId'>,
+  extraSeenIds?: ReadonlySet<string>
+): boolean {
+  hydrateSeenStorage();
+  const slug = (item.wikiSlug || '').trim();
+  const slugLower = slug.toLowerCase();
+  const workKey = toCanonicalWorkKey(item.category, item.title, item.creator);
+
+  if (slug && (seenSlugsSession.has(slug) || seenSlugsSession.has(slugLower))) return true;
+  if (item.wikiPageId && seenPageIdsSession.has(item.wikiPageId)) return true;
+  if (workKey && seenWorkKeysSession.has(workKey)) return true;
+
+  if (extraSeenIds) {
+    if (extraSeenIds.has(item.id)) return true;
+    if (slug && (extraSeenIds.has(slug) || extraSeenIds.has(slugLower))) return true;
+    if (workKey && extraSeenIds.has(workKey)) return true;
+    if (item.wikiPageId && extraSeenIds.has(`pid:${item.wikiPageId}`)) return true;
+  }
+  return false;
+}
+
+export function recordSeenWork(
+  item: Pick<CulturalItem, 'id' | 'category' | 'title' | 'creator' | 'wikiSlug' | 'wikiPageId'>
+): void {
+  hydrateSeenStorage();
+  const slug = (item.wikiSlug || '').trim();
+  const slugLower = slug.toLowerCase();
+  const workKey = toCanonicalWorkKey(item.category, item.title, item.creator);
+
+  const alreadyRecorded =
+    (!slug || seenSlugsSession.has(slugLower)) &&
+    seenWorkKeysSession.has(workKey) &&
+    (!item.wikiPageId || seenPageIdsSession.has(item.wikiPageId));
+
+  if (slug) {
+    seenSlugsSession.add(slug);
+    seenSlugsSession.add(slugLower);
+  }
+  if (workKey) {
+    seenWorkKeysSession.add(workKey);
+  }
+  if (item.wikiPageId && item.wikiPageId > 0) {
+    seenPageIdsSession.add(item.wikiPageId);
+  }
+
+  if (!alreadyRecorded) {
+    persistedSeenRing.push({
+      ...(slug ? { s: slug } : {}),
+      ...(workKey ? { k: workKey } : {}),
+      ...(item.wikiPageId && item.wikiPageId > 0 ? { p: item.wikiPageId } : {}),
+    });
+    if (persistedSeenRing.length > MAX_PERSISTED_SEEN_ENTRIES) {
+      persistedSeenRing.splice(0, persistedSeenRing.length - MAX_PERSISTED_SEEN_ENTRIES);
+    }
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(SOLO_SEEN_STORAGE_KEY, JSON.stringify(persistedSeenRing));
+      }
+    } catch {
+      // Ignore storage quota errors
+    }
+  }
+}
 
 // Polite global queue so parallel Wikipedia requests never trigger HTTP 429
 let wikiQueueTail: Promise<void> = Promise.resolve();
@@ -219,8 +411,17 @@ function isRelevantWorkPage(
 
   // Reject biographies, movements, lists, TV/video-game/universe overview pages
   if (
-    /\b(?:art movement|literary genre|fictional universe|fictional character|television series|tv series|video game|board game|role-playing game|franchise|media franchise)\b/i.test(
+    /\b(?:art movement|style of painting|artistic movement|literary movement|literary genre|music genre|fictional universe|fictional character|television series|tv series|video game|board game|role-playing game|franchise|media franchise)\b/i.test(
       combined
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    category === 'art' &&
+    /^(?:ancient|baroque|renaissance|impressionist|post-impressionist|dutch golden age|rococo|gothic|modern|contemporary|abstract|western|chinese|japanese|indian|persian|byzantine|flemish|romanesque|neoclassical)\s+painting$/i.test(
+      title.trim()
     )
   ) {
     return false;
@@ -310,6 +511,7 @@ interface WikiCategorySource {
   categoryName: string;
   expectedYear?: number;
   allowPrefix: boolean;
+  allowSubPrefix?: boolean;
 }
 
 function pickCategorySource(
@@ -318,20 +520,31 @@ function pickCategorySource(
   preferDiverseArt: boolean = false
 ): WikiCategorySource {
   if (concreteCategory === 'music') {
-    const year = Math.floor(rng() * (2024 - 1958 + 1)) + 1958;
+    if (rng() < 0.72) {
+      const year = Math.floor(rng() * (2024 - 1958 + 1)) + 1958;
+      return {
+        categoryName: `Category:${year}_albums`,
+        expectedYear: year,
+        allowPrefix: year >= 1965,
+        allowSubPrefix: year >= 1972,
+      };
+    }
+    const debutYear = Math.floor(rng() * (2023 - 1970 + 1)) + 1970;
     return {
-      categoryName: `Category:${year}_albums`,
-      expectedYear: year,
-      allowPrefix: year >= 1965,
+      categoryName: `Category:${debutYear}_debut_albums`,
+      expectedYear: debutYear,
+      allowPrefix: true,
+      allowSubPrefix: debutYear >= 1978,
     };
   }
   if (concreteCategory === 'books') {
-    if (rng() < 0.72) {
+    if (rng() < 0.7) {
       const year = Math.floor(rng() * (2023 - 1915 + 1)) + 1915;
       return {
         categoryName: `Category:${year}_novels`,
         expectedYear: year,
         allowPrefix: year >= 1960,
+        allowSubPrefix: year >= 1975,
       };
     }
     const landmark =
@@ -343,12 +556,40 @@ function pickCategorySource(
       categoryName: landmark,
       expectedYear: yearFromCat ? parseInt(yearFromCat[1], 10) : undefined,
       allowPrefix: !yearFromCat,
+      allowSubPrefix: !yearFromCat,
     };
   }
-  const useGeneral = preferDiverseArt || rng() < 0.75;
+  const useGeneral = preferDiverseArt || rng() < 0.72;
   const pool = useGeneral ? VERIFIED_ART_GENERAL_CATEGORIES : VERIFIED_ART_ARTIST_CATEGORIES;
   const artCat = pool[Math.floor(rng() * pool.length)];
-  return { categoryName: artCat, allowPrefix: true };
+  return {
+    categoryName: artCat,
+    allowPrefix: true,
+    allowSubPrefix: useGeneral,
+  };
+}
+
+function pickSortPrefixParam(
+  source: WikiCategorySource,
+  rng: () => number,
+  forceNoPrefix: boolean,
+  prefixMode: 'auto' | 'letter' | 'sub' = 'auto'
+): string {
+  const letterIdx = Math.floor(rng() * SORT_PREFIXES.length);
+  const subIdx = Math.floor(rng() * SORT_SUBPREFIXES.length);
+  const modeRoll = rng();
+
+  if (!source.allowPrefix || forceNoPrefix) {
+    return '';
+  }
+
+  if (prefixMode === 'sub' || (prefixMode === 'auto' && source.allowSubPrefix && modeRoll < 0.42)) {
+    return `&gcmstartsortkeyprefix=${SORT_SUBPREFIXES[subIdx]}`;
+  }
+  if (prefixMode === 'letter' || modeRoll < 0.94) {
+    return `&gcmstartsortkeyprefix=${SORT_PREFIXES[letterIdx]}`;
+  }
+  return '';
 }
 
 function parseWikiBatchPageToItem(
@@ -419,13 +660,12 @@ async function fetchLiveBatch(
   concreteCategory: WorkCategory,
   rng: () => number = Math.random,
   forceNoPrefix: boolean = false,
-  preferDiverseArt: boolean = false
+  preferDiverseArt: boolean = false,
+  prefixMode: 'auto' | 'letter' | 'sub' = 'auto',
+  addToDistractorBank: boolean = true
 ): Promise<CulturalItem[]> {
   const source = pickCategorySource(concreteCategory, rng, preferDiverseArt);
-  const usePrefix = source.allowPrefix && !forceNoPrefix && rng() < 0.72;
-  const letter = SORT_PREFIXES[Math.floor(rng() * SORT_PREFIXES.length)];
-
-  const prefixParam = usePrefix ? `&gcmstartsortkeyprefix=${letter}` : '';
+  const prefixParam = pickSortPrefixParam(source, rng, forceNoPrefix, prefixMode);
   const url =
     `https://en.wikipedia.org/w/api.php?action=query&generator=categorymembers` +
     `&gcmtitle=${encodeURIComponent(source.categoryName)}` +
@@ -444,7 +684,9 @@ async function fetchLiveBatch(
     const item = parseWikiBatchPageToItem(p, concreteCategory, source.expectedYear);
     if (item) {
       parsed.push(item);
-      pushToDistractorBank(item);
+      if (addToDistractorBank) {
+        pushToDistractorBank(item);
+      }
     }
   }
 
@@ -512,11 +754,13 @@ export async function refillLiveQueue(
   category: Category,
   minQueueSize: number = 6,
   minDistinctCreators: number = 10,
-  minBankSize: number = 20
+  minBankSize: number = 20,
+  extraSeenIds?: ReadonlySet<string>
 ): Promise<void> {
+  hydrateSeenStorage();
   if (category === 'everything') {
     for (const cat of WORK_CATEGORIES) {
-      await refillLiveQueue(cat, minQueueSize, minDistinctCreators, minBankSize);
+      await refillLiveQueue(cat, minQueueSize, minDistinctCreators, minBankSize, extraSeenIds);
     }
     return;
   }
@@ -535,16 +779,25 @@ export async function refillLiveQueue(
   if (!needsQueue() && !needsCreators()) return;
 
   const work = (async () => {
-    const queuedSlugs = new Set(liveQueue[category].map(it => it.wikiSlug));
+    const queuedSlugs = new Set(liveQueue[category].map(it => it.wikiSlug.toLowerCase()));
+    const queuedWorkKeys = new Set(
+      liveQueue[category].map(it => toCanonicalWorkKey(it.category, it.title, it.creator))
+    );
     const queuedCreators = new Set(
       liveQueue[category].map(it => it.creator.trim().toLowerCase())
     );
 
-    for (let attempt = 0; attempt < 7 && (needsQueue() || needsCreators()); attempt++) {
+    for (let attempt = 0; attempt < 10 && (needsQueue() || needsCreators()); attempt++) {
       const preferDiverseArt = needsCreators();
-      const batch = await fetchLiveBatch(category, Math.random, attempt >= 4, preferDiverseArt);
+      const forceNoPrefix = attempt >= 8;
+      const prefixMode = attempt >= 6 ? 'letter' : 'auto';
+      const batch = await fetchLiveBatch(category, Math.random, forceNoPrefix, preferDiverseArt, prefixMode);
       const fresh = shuffleInPlace(
-        batch.filter(it => !queuedSlugs.has(it.wikiSlug) && !seenSlugsSession.has(it.wikiSlug))
+        batch.filter(it => {
+          const slugLower = it.wikiSlug.toLowerCase();
+          const workKey = toCanonicalWorkKey(it.category, it.title, it.creator);
+          return !queuedSlugs.has(slugLower) && !queuedWorkKeys.has(workKey) && !isWorkSeen(it, extraSeenIds);
+        })
       );
 
       // Prefer unseen creators first and cap intake per batch so consecutive Solo rounds span eras/creators
@@ -563,7 +816,10 @@ export async function refillLiveQueue(
       let addedFromBatch = 0;
       for (const item of prioritized) {
         if (addedFromBatch >= MAX_QUEUE_ADD_PER_BATCH) break;
-        queuedSlugs.add(item.wikiSlug);
+        const slugLower = item.wikiSlug.toLowerCase();
+        const workKey = toCanonicalWorkKey(item.category, item.title, item.creator);
+        queuedSlugs.add(slugLower);
+        queuedWorkKeys.add(workKey);
         queuedCreators.add(item.creator.trim().toLowerCase());
         liveQueue[category].push(item);
         addedFromBatch++;
@@ -588,18 +844,20 @@ export async function fetchLiveRandomItem(
   category: Category,
   seenSlugs: Set<string> = new Set()
 ): Promise<CulturalItem | null> {
+  hydrateSeenStorage();
   const concreteCategory = pickConcreteCategory(category);
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const batch = await fetchLiveBatch(concreteCategory, Math.random, attempt >= 2, attempt >= 1);
-    const eligible = batch.filter(
-      it => !seenSlugs.has(it.wikiSlug) && !seenSlugs.has(it.id) && !seenSlugsSession.has(it.wikiSlug)
-    );
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const forceNoPrefix = attempt >= 9;
+    const prefixMode = attempt >= 6 ? 'letter' : 'auto';
+    const batch = await fetchLiveBatch(concreteCategory, Math.random, forceNoPrefix, attempt >= 1, prefixMode);
+    const eligible = batch.filter(it => !isWorkSeen(it, seenSlugs));
     if (eligible.length > 0) {
       const picked = eligible[Math.floor(Math.random() * eligible.length)];
-      seenSlugsSession.add(picked.wikiSlug);
-      if (picked.category === 'books') return await resolveSafeBookCoverItem(picked);
-      if (picked.category === 'music') return await resolveSafeMusicCoverItem(picked);
-      return picked;
+      let resolved = picked;
+      if (picked.category === 'books') resolved = await resolveSafeBookCoverItem(picked);
+      else if (picked.category === 'music') resolved = await resolveSafeMusicCoverItem(picked);
+      recordSeenWork(resolved);
+      return resolved;
     }
   }
   return null;
@@ -614,10 +872,11 @@ export async function getNextLiveRoundItem(
   category: Category,
   seenSlugs: Set<string> = new Set()
 ): Promise<CulturalItem> {
+  hydrateSeenStorage();
   const concreteCategory = pickConcreteCategory(category);
 
   liveQueue[concreteCategory] = liveQueue[concreteCategory].filter(
-    it => !seenSlugs.has(it.id) && !seenSlugs.has(it.wikiSlug)
+    it => !isWorkSeen(it, seenSlugs)
   );
 
   if (
@@ -625,43 +884,56 @@ export async function getNextLiveRoundItem(
     countDistinctCreators(liveDistractorBank[concreteCategory]) < 10 ||
     liveDistractorBank[concreteCategory].length < 20
   ) {
-    await refillLiveQueue(concreteCategory, 6, 10, 20);
+    await refillLiveQueue(concreteCategory, 6, 10, 20, seenSlugs);
   }
 
   while (liveQueue[concreteCategory].length > 0) {
     const fetched = liveQueue[concreteCategory].shift()!;
-    if (!seenSlugs.has(fetched.id) && !seenSlugs.has(fetched.wikiSlug)) {
-      seenSlugsSession.add(fetched.wikiSlug);
+    if (!isWorkSeen(fetched, seenSlugs)) {
+      recordSeenWork(fetched);
       if (
         liveQueue[concreteCategory].length < 4 ||
         liveDistractorBank[concreteCategory].length < 26 ||
         countDistinctCreators(liveDistractorBank[concreteCategory]) < 12
       ) {
-        setTimeout(() => refillLiveQueue(concreteCategory, 6, 12, 26).catch(() => {}), 320);
+        setTimeout(() => refillLiveQueue(concreteCategory, 6, 12, 26, seenSlugs).catch(() => {}), 320);
       }
-      if (fetched.category === 'books') return await resolveSafeBookCoverItem(fetched);
-      if (fetched.category === 'music') return await resolveSafeMusicCoverItem(fetched);
-      return fetched;
+      let resolved = fetched;
+      if (fetched.category === 'books') resolved = await resolveSafeBookCoverItem(fetched);
+      else if (fetched.category === 'music') resolved = await resolveSafeMusicCoverItem(fetched);
+      recordSeenWork(resolved);
+      return resolved;
     }
   }
 
   // Last-resort direct fetch before touching stored catalog
   const liveDirect = await fetchLiveRandomItem(concreteCategory, seenSlugs);
   if (liveDirect) {
-    setTimeout(() => refillLiveQueue(concreteCategory, 6, 12, 26).catch(() => {}), 320);
+    setTimeout(() => refillLiveQueue(concreteCategory, 6, 12, 26, seenSlugs).catch(() => {}), 320);
     return liveDirect;
   }
 
   // Emergency offline fallback only if Wikipedia is unreachable
-  const catItems = CULTURAL_ITEMS.filter(
-    it => it.category === concreteCategory && !seenSlugs.has(it.id)
+  const unseenSameCat = CULTURAL_ITEMS.filter(
+    it => it.category === concreteCategory && !isWorkSeen(it, seenSlugs)
   );
-  const pool = catItems.length > 0 ? catItems : CULTURAL_ITEMS.filter(it => it.category === concreteCategory);
+  const unseenAnyCat =
+    category === 'everything'
+      ? CULTURAL_ITEMS.filter(it => !isWorkSeen(it, seenSlugs))
+      : [];
+  const pool =
+    unseenSameCat.length > 0
+      ? unseenSameCat
+      : unseenAnyCat.length > 0
+      ? unseenAnyCat
+      : CULTURAL_ITEMS.filter(it => it.category === concreteCategory);
   const fallback = pool[Math.floor(Math.random() * pool.length)];
 
-  if (fallback.category === 'books') return await resolveSafeBookCoverItem(fallback);
-  if (fallback.category === 'music') return await resolveSafeMusicCoverItem(fallback);
-  return fallback;
+  let resolvedFallback = fallback;
+  if (fallback.category === 'books') resolvedFallback = await resolveSafeBookCoverItem(fallback);
+  else if (fallback.category === 'music') resolvedFallback = await resolveSafeMusicCoverItem(fallback);
+  recordSeenWork(resolvedFallback);
+  return resolvedFallback;
 }
 
 let prewarmRunning = false;
@@ -772,8 +1044,11 @@ export async function buildMultiplayerLiveRoomPool(
   const targetDistractorCount = gameMode === 'forever' ? 10 : 15;
   const totalNeeded = targetRoundCount + targetDistractorCount;
 
+  hydrateSeenStorage();
   const pickedItems: CulturalItem[] = [];
   const usedSlugs = new Set<string>();
+  const usedPageIds = new Set<number>();
+  const usedWorkKeys = new Set<string>();
   const creatorCounts = new Map<string, number>();
 
   const targetCats: WorkCategory[] =
@@ -784,11 +1059,12 @@ export async function buildMultiplayerLiveRoomPool(
   const targetPerCat =
     category === 'everything' ? (gameMode === 'forever' ? 8 : 9) : totalNeeded;
   const minCreatorsPerCat = category === 'everything' ? 5 : 8;
-  const maxPasses = category === 'everything' ? 4 : 6;
+  const maxPasses = category === 'everything' ? 5 : 7;
   const maxFromSingleBatch = 6;
 
   for (let pass = 0; pass < maxPasses; pass++) {
     let allSatisfied = true;
+    const allowSessionSeen = pass >= maxPasses - 2;
     for (const workCat of targetCats) {
       const catItems = pickedItems.filter(it => it.category === workCat);
       const needsMore =
@@ -800,12 +1076,21 @@ export async function buildMultiplayerLiveRoomPool(
       const shuffled = shuffleInPlace([...batch]);
       let addedThisBatch = 0;
       for (const item of shuffled) {
-        if (usedSlugs.has(item.wikiSlug)) continue;
+        const slugLower = item.wikiSlug.toLowerCase();
+        const workKey = toCanonicalWorkKey(item.category, item.title, item.creator);
+        if (usedSlugs.has(slugLower)) continue;
+        if (item.wikiPageId && usedPageIds.has(item.wikiPageId)) continue;
+        if (usedWorkKeys.has(workKey)) continue;
+        if (!allowSessionSeen && isWorkSeen(item)) continue;
+
         const cKey = item.creator.trim().toLowerCase();
         const existingCount = creatorCounts.get(cKey) || 0;
         if (pass < maxPasses - 1 && existingCount >= 2) continue;
 
         usedSlugs.add(item.wikiSlug);
+        usedSlugs.add(slugLower);
+        if (item.wikiPageId) usedPageIds.add(item.wikiPageId);
+        usedWorkKeys.add(workKey);
         creatorCounts.set(cKey, existingCount + 1);
         pickedItems.push(item);
         addedThisBatch++;
@@ -898,14 +1183,24 @@ export async function buildMultiplayerLiveRoomPool(
   // Offline emergency tail ONLY if Wikipedia failed to provide enough live rounds
   if (rawRoundItems.length < targetRoundCount) {
     const offlineTail = [...CULTURAL_ITEMS]
-      .filter(it => (category === 'everything' || it.category === category) && !usedSlugs.has(it.wikiSlug))
+      .filter(it => {
+        if (category !== 'everything' && it.category !== category) return false;
+        const slugLower = it.wikiSlug.toLowerCase();
+        const workKey = toCanonicalWorkKey(it.category, it.title, it.creator);
+        return !usedSlugs.has(it.wikiSlug) && !usedSlugs.has(slugLower) && !usedWorkKeys.has(workKey);
+      })
       .sort(() => Math.random() - 0.5);
     for (const it of offlineTail) {
+      const workKey = toCanonicalWorkKey(it.category, it.title, it.creator);
       if (rawRoundItems.length < targetRoundCount) {
         usedSlugs.add(it.wikiSlug);
+        usedSlugs.add(it.wikiSlug.toLowerCase());
+        usedWorkKeys.add(workKey);
         rawRoundItems.push(it);
       } else if (rawDistractorItems.length < targetDistractorCount) {
         usedSlugs.add(it.wikiSlug);
+        usedSlugs.add(it.wikiSlug.toLowerCase());
+        usedWorkKeys.add(workKey);
         rawDistractorItems.push(it);
       } else {
         break;
@@ -1175,12 +1470,13 @@ export async function hydrateMultiplayerItems(
  * 1. Rounds inside `challenge.manifest` return exact locked live items (100% identical across all players).
  * 2. Deep Forever rounds past the pre-locked manifest (or bare legacy `?ch=` seeds)
  *    pull deterministically from canonically sorted verified Wikipedia batches with pinned thumbnails
- *    so clients never diverge on covers or race timeouts.
+ *    so clients never diverge on covers or race timeouts, while excluding EVERY prior round in the room.
  */
 export async function getSeededChallengeRoundItem(
   challenge: MultiplayerChallenge,
   roundIndex: number,
-  hydratedManifest?: CulturalItem[]
+  hydratedManifest?: CulturalItem[],
+  priorItems: readonly CulturalItem[] = []
 ): Promise<CulturalItem> {
   if (hydratedManifest && roundIndex < hydratedManifest.length) {
     return hydratedManifest[roundIndex];
@@ -1189,20 +1485,59 @@ export async function getSeededChallengeRoundItem(
     return manifestEntryToBaseItem(challenge.manifest[roundIndex], challenge.id, roundIndex);
   }
 
-  const manifestSlugs = new Set((challenge.manifest || []).map(m => m.slug).filter(Boolean));
-  const manifestPageIds = new Set(
-    (challenge.manifest || []).map(m => m.pageId).filter((id): id is number => Boolean(id))
-  );
+  const excludeSlugs = new Set<string>();
+  const excludePageIds = new Set<number>();
+  const excludeWorkKeys = new Set<string>();
+
+  const registerExcludedEntry = (
+    cat: WorkCategory,
+    slug?: string,
+    title?: string,
+    creator?: string,
+    pageId?: number
+  ) => {
+    if (slug) {
+      excludeSlugs.add(slug);
+      excludeSlugs.add(slug.toLowerCase());
+    }
+    if (pageId && pageId > 0) {
+      excludePageIds.add(pageId);
+    }
+    if (title) {
+      excludeWorkKeys.add(toCanonicalWorkKey(cat, title, creator));
+    }
+  };
+
+  for (const m of challenge.manifest || []) {
+    registerExcludedEntry(m.category, m.slug, m.title, m.creator, m.pageId);
+  }
+  for (const h of hydratedManifest || []) {
+    registerExcludedEntry(h.category, h.wikiSlug, h.title, h.creator, h.wikiPageId);
+  }
+  for (const prev of priorItems) {
+    registerExcludedEntry(prev.category, prev.wikiSlug, prev.title, prev.creator, prev.wikiPageId);
+  }
+
+  const isExcludedItem = (item: CulturalItem): boolean => {
+    const slugLower = item.wikiSlug.toLowerCase();
+    if (excludeSlugs.has(item.wikiSlug) || excludeSlugs.has(slugLower)) return true;
+    if (item.wikiPageId && excludePageIds.has(item.wikiPageId)) return true;
+    const workKey = toCanonicalWorkKey(item.category, item.title, item.creator);
+    if (excludeWorkKeys.has(workKey)) return true;
+    return false;
+  };
+
   const category = challenge.category;
   const challengeSeed = challenge.id;
 
   // Deterministic live Wikipedia fetch for Round 11+ in Forever Survival (or un-manifested legacy links)
-  for (let probe = 0; probe < 5; probe++) {
+  for (let probe = 0; probe < 14; probe++) {
     const probeRng = createSeededRng(`${challengeSeed}:live:${category}:${roundIndex}:p${probe}`);
     const concreteCategory = pickConcreteCategory(category, probeRng);
-    const source = pickCategorySource(concreteCategory, probeRng);
-    const letter = SORT_PREFIXES[Math.floor(probeRng() * SORT_PREFIXES.length)];
-    const prefixParam = source.allowPrefix && probe < 3 ? `&gcmstartsortkeyprefix=${letter}` : '';
+    const source = pickCategorySource(concreteCategory, probeRng, probe < 10);
+    const forceNoPrefix = probe >= 11;
+    const prefixMode = probe >= 8 ? 'letter' : 'auto';
+    const prefixParam = pickSortPrefixParam(source, probeRng, forceNoPrefix, prefixMode);
 
     const url =
       `https://en.wikipedia.org/w/api.php?action=query&generator=categorymembers` +
@@ -1220,38 +1555,37 @@ export async function getSeededChallengeRoundItem(
     // Canonical alphabetical sort BEFORE seeded shuffle guarantees every client picks the exact same item
     const parsedCandidates = pages
       .map(p => parseWikiBatchPageToItem(p, concreteCategory, source.expectedYear))
-      .filter((it): it is CulturalItem =>
-        Boolean(
-          it &&
-            !manifestSlugs.has(it.wikiSlug) &&
-            (!it.wikiPageId || !manifestPageIds.has(it.wikiPageId))
-        )
-      )
+      .filter((it): it is CulturalItem => Boolean(it && !isExcludedItem(it)))
       .sort((a, b) => a.wikiSlug.localeCompare(b.wikiSlug));
 
     if (parsedCandidates.length > 0) {
       const ordered = seededShuffle(parsedCandidates, probeRng);
-      const chosen = ordered[0];
-      return {
-        ...chosen,
-        id: `ch-${challengeSeed}-${roundIndex}-${chosen.wikiSlug}`,
-        // Keep Wikimedia cover directly so all players see the exact same thumbnail
-        altCoverApplied: true,
-      };
+      for (const chosen of ordered) {
+        if (!isExcludedItem(chosen)) {
+          pushToDistractorBank(chosen);
+          return {
+            ...chosen,
+            id: `ch-${challengeSeed}-${roundIndex}-${chosen.wikiSlug}`,
+            // Keep Wikimedia cover directly so all players see the exact same thumbnail
+            altCoverApplied: true,
+          };
+        }
+      }
     }
   }
 
-  // Deterministic wrap fallback strictly if completely offline
-  if (hydratedManifest && hydratedManifest.length > 0) {
-    return hydratedManifest[roundIndex % hydratedManifest.length];
-  }
+  // Deterministic unseen offline fallback strictly if live Wikipedia probes all failed
   const offlineDeck = seededShuffle(
     [...CULTURAL_ITEMS]
       .filter(it => category === 'everything' || it.category === category)
       .sort((a, b) => a.id.localeCompare(b.id)),
     createSeededRng(`${challengeSeed}:offline:${category}`)
   );
-  const picked = offlineDeck[roundIndex % offlineDeck.length];
+  const unseenOffline = offlineDeck.filter(it => !isExcludedItem(it));
+  const picked =
+    unseenOffline.length > 0
+      ? unseenOffline[0]
+      : offlineDeck[roundIndex % offlineDeck.length];
   return {
     ...picked,
     id: `ch-${challengeSeed}-${roundIndex}-${picked.wikiSlug || picked.id}`,

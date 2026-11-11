@@ -31,6 +31,7 @@ export const RoundRevealModal: React.FC<RoundRevealModalProps> = ({
 
   const [animatedScore, setAnimatedScore] = useState(0);
   const [isWikiOpen, setIsWikiOpen] = useState(false);
+  const [isAdvancing, setIsAdvancing] = useState(false);
 
   const isFainted = gameMode === 'forever' && remainingHp <= 0;
 
@@ -291,11 +292,14 @@ export const RoundRevealModal: React.FC<RoundRevealModalProps> = ({
 
         {/* Action Button */}
         <button
+          disabled={isAdvancing}
           onClick={() => {
+            if (isAdvancing) return;
+            setIsAdvancing(true);
             sounds.playClick();
             onNextRound();
           }}
-          className={`w-full py-3 rounded font-pixel-title text-xs tracking-wider pixel-btn shadow-xl cursor-pointer flex items-center justify-center gap-2 ${
+          className={`w-full py-3 rounded font-pixel-title text-xs tracking-wider pixel-btn shadow-xl cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2 ${
             isFainted
               ? 'bg-rose-700 hover:bg-rose-600 border-2 border-rose-950 text-white'
               : 'bg-[#5c993d] hover:bg-[#6ab346] border-2 border-[#2b4c1a] text-white'

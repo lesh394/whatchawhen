@@ -9,6 +9,8 @@ import {
   getSeededChallengeRoundItem,
   hydrateMultiplayerChallenge,
   prewarmLiveQueues,
+  recordSeenWork,
+  toCanonicalWorkKey,
 } from './services/liveWikipediaEngine';
 import { getAllKnownItems } from './services/infinitePool';
 import { toEasyOptionKey } from './services/choices';
@@ -96,8 +98,24 @@ export function App() {
   // Perfect Bullseye Streak Counter
   const [streakMultiplier, setStreakMultiplier] = useState<number>(0);
 
-  // Anti-Recycle tracker: prevents items from repeating across solo runs
-  const [seenItemIds, setSeenItemIds] = useState<Set<string>>(new Set());
+  // Anti-Recycle tracker: prevents items from repeating across solo runs & new rooms
+  const seenItemIdsRef = useRef<Set<string>>(new Set());
+  const [, setSeenItemIds] = useState<Set<string>>(new Set());
+  const isAdvancingRoundRef = useRef<boolean>(false);
+
+  const trackPlayedItem = (item: CulturalItem) => {
+    recordSeenWork(item);
+    seenItemIdsRef.current.add(item.id);
+    if (item.wikiSlug) {
+      seenItemIdsRef.current.add(item.wikiSlug);
+      seenItemIdsRef.current.add(item.wikiSlug.toLowerCase());
+    }
+    if (item.wikiPageId && item.wikiPageId > 0) {
+      seenItemIdsRef.current.add(`pid:${item.wikiPageId}`);
+    }
+    seenItemIdsRef.current.add(toCanonicalWorkKey(item.category, item.title, item.creator));
+    setSeenItemIds(new Set(seenItemIdsRef.current));
+  };
 
   // Hints: 1 hint token for the entire match/level by default
   const [hintTokens, setHintTokens] = useState<number>(1);
@@ -144,7 +162,7 @@ export function App() {
   const currentScore = results.reduce((sum, r) => sum + r.totalPoints, 0);
   const theme = CATEGORY_THEMES[category];
   const knownItems = useMemo(() => getAllKnownItems(), []);
-  const currentRoundItem = roundItems[roundIndex % Math.max(1, roundItems.length)];
+  const currentRoundItem = roundItems[roundIndex];
 
   // Snapshot live pool distractors per round item so Easy options stay stable mid-round
   // while always originating from the random live Wikipedia pool (never stored items)
@@ -215,6 +233,9 @@ export function App() {
     targetChallenge: MultiplayerChallenge | null,
     overrideCategory?: Category
   ) => {
+    if (isAdvancingRoundRef.current) return;
+    isAdvancingRoundRef.current = true;
+
     const activeCat = targetChallenge
       ? targetChallenge.category
       : overrideCategory || category;
@@ -270,15 +291,13 @@ export function App() {
         firstItem = await getSeededChallengeRoundItem(
           resolvedChallenge,
           0,
-          hydratedItems
+          hydratedItems,
+          []
         );
       } else {
-        firstItem = await getNextLiveRoundItem(activeCat, seenItemIds);
-        const newSeen = new Set(seenItemIds);
-        newSeen.add(firstItem.id);
-        newSeen.add(firstItem.wikiSlug);
-        setSeenItemIds(newSeen);
+        firstItem = await getNextLiveRoundItem(activeCat, seenItemIdsRef.current);
       }
+      trackPlayedItem(firstItem);
 
       setRoundItems([firstItem]);
       setRoundIndex(0);
@@ -289,6 +308,7 @@ export function App() {
       setStreakMultiplier(0);
       setGamePhase('playing');
     } finally {
+      isAdvancingRoundRef.current = false;
       setIsLoadingLiveItem(false);
     }
   };
@@ -359,7 +379,7 @@ export function App() {
 
   // Submit Guess using TimeGuessr difficulty-scaled scoring
   const handleSubmitGuess = async (guess: RoundGuess) => {
-    const currentItem = roundItems[roundIndex % roundItems.length];
+    const currentItem = roundItems[roundIndex];
     if (!currentItem) return;
 
     // Evaluate score & damage with difficulty harshness profile
@@ -414,69 +434,76 @@ export function App() {
 
   // Next Round / Game Over
   const handleNextRound = async () => {
-    setLatestResult(null);
+    if (isAdvancingRoundRef.current) return;
+    isAdvancingRoundRef.current = true;
 
-    // Check if player died in Forever Mode
-    if (gameMode === 'forever' && currentHp <= 0) {
-      const survivedRounds = results.length;
-      if (survivedRounds > (foreverStreaks[category] || 0)) {
-        const updated = { ...foreverStreaks, [category]: survivedRounds };
-        setForeverStreaks(updated);
-        try {
-          localStorage.setItem('whatchawhen_forever_streaks', JSON.stringify(updated));
-        } catch {}
-      }
-      setGamePhase('gameover');
-      return;
-    }
+    try {
+      setLatestResult(null);
 
-    // Check if Classic Mode finished (5 rounds)
-    if (gameMode === 'classic' && roundIndex >= 4) {
-      const finalScore = results.reduce((sum, r) => sum + r.totalPoints, 0);
-      if (finalScore > (highScores[category] || 0)) {
-        const updated = { ...highScores, [category]: finalScore };
-        setHighScores(updated);
-        try {
-          localStorage.setItem('whatchawhen_highscores', JSON.stringify(updated));
-        } catch {}
-      }
-      setGamePhase('gameover');
-      return;
-    }
-
-    // Next round index
-    const nextIndex = roundIndex + 1;
-
-    // Fetch the next round item if not already buffered
-    if (nextIndex >= roundItems.length) {
-      setIsLoadingLiveItem(true);
-      try {
-        if (activeChallenge) {
-          const hydratedItems =
-            hydratedManifestRef.current.challengeId === activeChallenge.id
-              ? hydratedManifestRef.current.items
-              : [];
-          const nextItem = await getSeededChallengeRoundItem(
-            activeChallenge,
-            nextIndex,
-            hydratedItems
-          );
-          setRoundItems(prev => [...prev, nextItem]);
-        } else {
-          const nextItem = await getNextLiveRoundItem(category, seenItemIds);
-          const newSeen = new Set(seenItemIds);
-          newSeen.add(nextItem.id);
-          newSeen.add(nextItem.wikiSlug);
-          setSeenItemIds(newSeen);
-          setRoundItems(prev => [...prev, nextItem]);
+      // Check if player died in Forever Mode
+      if (gameMode === 'forever' && currentHp <= 0) {
+        const survivedRounds = results.length;
+        if (survivedRounds > (foreverStreaks[category] || 0)) {
+          const updated = { ...foreverStreaks, [category]: survivedRounds };
+          setForeverStreaks(updated);
+          try {
+            localStorage.setItem('whatchawhen_forever_streaks', JSON.stringify(updated));
+          } catch {}
         }
-      } finally {
-        setIsLoadingLiveItem(false);
+        setGamePhase('gameover');
+        return;
       }
-    }
 
-    setRoundIndex(nextIndex);
-    setGamePhase('playing');
+      // Check if Classic Mode finished (5 rounds)
+      if (gameMode === 'classic' && roundIndex >= 4) {
+        const finalScore = results.reduce((sum, r) => sum + r.totalPoints, 0);
+        if (finalScore > (highScores[category] || 0)) {
+          const updated = { ...highScores, [category]: finalScore };
+          setHighScores(updated);
+          try {
+            localStorage.setItem('whatchawhen_highscores', JSON.stringify(updated));
+          } catch {}
+        }
+        setGamePhase('gameover');
+        return;
+      }
+
+      // Next round index
+      const nextIndex = roundIndex + 1;
+
+      // Fetch the next round item if not already buffered
+      if (nextIndex >= roundItems.length) {
+        setIsLoadingLiveItem(true);
+        try {
+          if (activeChallenge) {
+            const hydratedItems =
+              hydratedManifestRef.current.challengeId === activeChallenge.id
+                ? hydratedManifestRef.current.items
+                : [];
+            const priorPlayed = roundItems.slice(0, nextIndex);
+            const nextItem = await getSeededChallengeRoundItem(
+              activeChallenge,
+              nextIndex,
+              hydratedItems,
+              priorPlayed
+            );
+            trackPlayedItem(nextItem);
+            setRoundItems(prev => [...prev, nextItem]);
+          } else {
+            const nextItem = await getNextLiveRoundItem(category, seenItemIdsRef.current);
+            trackPlayedItem(nextItem);
+            setRoundItems(prev => [...prev, nextItem]);
+          }
+        } finally {
+          setIsLoadingLiveItem(false);
+        }
+      }
+
+      setRoundIndex(nextIndex);
+      setGamePhase('playing');
+    } finally {
+      isAdvancingRoundRef.current = false;
+    }
   };
 
   const handleToggleMute = () => {
@@ -525,10 +552,10 @@ export function App() {
           />
         )}
 
-        {gamePhase === 'playing' && roundItems[roundIndex % roundItems.length] && (
+        {gamePhase === 'playing' && roundItems[roundIndex] && (
           <GamePlayRound
-            key={`${roundItems[roundIndex % roundItems.length].id}-${roundIndex}-${difficulty}`}
-            item={roundItems[roundIndex % roundItems.length]}
+            key={`${roundItems[roundIndex].id}-${roundIndex}-${difficulty}`}
+            item={roundItems[roundIndex]}
             gameCategory={category}
             gameMode={gameMode}
             difficulty={difficulty}
