@@ -22,8 +22,8 @@ function pickConcreteCategory(category: Category, rng: () => number = Math.rando
   return category;
 }
 
-// Curated 100%-verified high-yield Wikipedia categories (15-20 pictured works per batch)
-const VERIFIED_ART_CATEGORIES: string[] = [
+// Museum & movement categories give broad creator variety for distractors
+const VERIFIED_ART_GENERAL_CATEGORIES: string[] = [
   'Category:Paintings_in_the_Metropolitan_Museum_of_Art',
   'Category:Paintings_in_the_Art_Institute_of_Chicago',
   'Category:Paintings_in_the_National_Gallery,_London',
@@ -32,6 +32,9 @@ const VERIFIED_ART_CATEGORIES: string[] = [
   'Category:Baroque_paintings',
   'Category:Impressionist_paintings',
   'Category:Surrealist_paintings',
+];
+
+const VERIFIED_ART_ARTIST_CATEGORIES: string[] = [
   'Category:Paintings_by_Vincent_van_Gogh',
   'Category:Paintings_by_Claude_Monet',
   'Category:Paintings_by_Rembrandt',
@@ -52,7 +55,8 @@ const VERIFIED_BOOK_LANDMARK_CATEGORIES: string[] = [
   'Category:1932_novels',
 ];
 
-const SORT_PREFIXES = 'ABCDEFGHIJKLMNOPRSTW';
+// Omit late sparse prefixes (O/W/Z) so small categories always yield plenty of pictured entries
+const SORT_PREFIXES = 'ABCDEFGHJLMNPST';
 
 // In-memory live round queues + random distractor banks populated directly from Wikipedia
 const liveQueue: Record<WorkCategory, CulturalItem[]> = {
@@ -74,10 +78,10 @@ const seenSlugsSession = new Set<string>();
 let wikiQueueTail: Promise<void> = Promise.resolve();
 let lastWikiRequestAt = 0;
 
-async function fetchJsonThrottled(url: string, retries: number = 2): Promise<any | null> {
+async function fetchJsonThrottled(url: string, retries: number = 3): Promise<any | null> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     const run = wikiQueueTail.then(async () => {
-      const waitMs = 115 - (Date.now() - lastWikiRequestAt);
+      const waitMs = 190 - (Date.now() - lastWikiRequestAt);
       if (waitMs > 0) {
         await new Promise(r => setTimeout(r, waitMs));
       }
@@ -97,13 +101,13 @@ async function fetchJsonThrottled(url: string, retries: number = 2): Promise<any
         return await res.json();
       }
       if (res.status === 429 || res.status >= 500) {
-        await new Promise(r => setTimeout(r, 380 * (attempt + 1)));
+        await new Promise(r => setTimeout(r, 550 * (attempt + 1)));
         continue;
       }
       return null;
     } catch {
       if (attempt < retries) {
-        await new Promise(r => setTimeout(r, 280 * (attempt + 1)));
+        await new Promise(r => setTimeout(r, 350 * (attempt + 1)));
       }
     }
   }
@@ -112,6 +116,18 @@ async function fetchJsonThrottled(url: string, retries: number = 2): Promise<any
 
 // ---------------- WIKIPEDIA PARSING HELPERS ----------------
 
+function cleanCreatorCandidate(raw: string): string {
+  let out = (raw || '').trim();
+  // Strip verbose descriptor prefixes like "the Dutch writer Willem Frederik Hermans"
+  out = out.replace(
+    /^(?:the\s+)?(?:[A-Za-zÀ-ÿ-]+\s+){0,2}(?:author|writer|novelist|poet|painter|artist|sculptor|musician|singer(?:-songwriter)?|songwriter|rapper|composer|producer|dj|rock band|pop band|metal band|jazz band|indie band|folk band|band|group|duo|trio|ensemble)\s+(?=[A-ZÀ-Ý])/i,
+    ''
+  );
+  // Normalize lowercase leading article like "the Mountain Goats" -> "The Mountain Goats"
+  out = out.replace(/^the\s+/, 'The ');
+  return out.trim();
+}
+
 function extractCreator(desc: string, extract: string, category: WorkCategory): string {
   desc = (desc || '').trim();
   extract = (extract || '').trim();
@@ -119,7 +135,7 @@ function extractCreator(desc: string, extract: string, category: WorkCategory): 
   // Pattern 1: "... by <Creator>" in description
   const byMatch = desc.match(/\bby\s+([^,.(]+)/i);
   if (byMatch) {
-    const candidate = byMatch[1].trim();
+    const candidate = cleanCreatorCandidate(byMatch[1]);
     if (candidate.length > 1 && candidate.length < 55) return candidate;
   }
 
@@ -128,7 +144,7 @@ function extractCreator(desc: string, extract: string, category: WorkCategory): 
     /^(?:\d{4}\s+)?([A-Z][a-zA-ZÀ-ÿ\s.'-]+?)\s+(?:novel|novella|book|painting|album|single|work)\b/
   );
   if (prefixMatch) {
-    const candidate = prefixMatch[1].trim();
+    const candidate = cleanCreatorCandidate(prefixMatch[1]);
     if (
       candidate.length > 2 &&
       candidate.length < 55 &&
@@ -140,13 +156,13 @@ function extractCreator(desc: string, extract: string, category: WorkCategory): 
     }
   }
 
-  // Pattern 3: First sentence "<verb> by <Creator>"
+  // Pattern 3: First sentence "<verb/workNoun> by <Creator>"
   const firstSentence = extract.split(/[.?!]\s/)[0] || '';
   const extBy = firstSentence.match(
-    /\b(?:written|painted|recorded|composed|created|executed|authored|sung|performed)\s+by\s+(?:the\s+)?([A-Z][a-zA-ZÀ-ÿ0-9\s&.'-]+?)(?:,|\s+in\s+|\s+on\s+|\s+for\s+|\s+from\s+|\s+and\s+(?:published|released)|\s*\(|$)/i
+    /\b(?:written|painted|recorded|composed|created|executed|authored|sung|performed|novel|novella|book|album|single|song|ep|painting|portrait|fresco|mural|artwork|work)\s+by\s+(?:the\s+)?([A-Z][a-zA-ZÀ-ÿ0-9\s&.'-]+?)(?:,|\s+in\s+|\s+on\s+|\s+for\s+|\s+from\s+|\s+and\s+(?:published|released)|\s*\(|$)/i
   );
   if (extBy) {
-    const candidate = extBy[1].trim();
+    const candidate = cleanCreatorCandidate(extBy[1]);
     if (candidate.length > 2 && candidate.length < 55) return candidate;
   }
 
@@ -293,20 +309,30 @@ function extractYearFromWikiPage(
 interface WikiCategorySource {
   categoryName: string;
   expectedYear?: number;
+  allowPrefix: boolean;
 }
 
 function pickCategorySource(
   concreteCategory: WorkCategory,
-  rng: () => number
+  rng: () => number,
+  preferDiverseArt: boolean = false
 ): WikiCategorySource {
   if (concreteCategory === 'music') {
     const year = Math.floor(rng() * (2024 - 1958 + 1)) + 1958;
-    return { categoryName: `Category:${year}_albums`, expectedYear: year };
+    return {
+      categoryName: `Category:${year}_albums`,
+      expectedYear: year,
+      allowPrefix: year >= 1965,
+    };
   }
   if (concreteCategory === 'books') {
     if (rng() < 0.72) {
       const year = Math.floor(rng() * (2023 - 1915 + 1)) + 1915;
-      return { categoryName: `Category:${year}_novels`, expectedYear: year };
+      return {
+        categoryName: `Category:${year}_novels`,
+        expectedYear: year,
+        allowPrefix: year >= 1960,
+      };
     }
     const landmark =
       VERIFIED_BOOK_LANDMARK_CATEGORIES[
@@ -316,11 +342,13 @@ function pickCategorySource(
     return {
       categoryName: landmark,
       expectedYear: yearFromCat ? parseInt(yearFromCat[1], 10) : undefined,
+      allowPrefix: !yearFromCat,
     };
   }
-  const artCat =
-    VERIFIED_ART_CATEGORIES[Math.floor(rng() * VERIFIED_ART_CATEGORIES.length)];
-  return { categoryName: artCat };
+  const useGeneral = preferDiverseArt || rng() < 0.75;
+  const pool = useGeneral ? VERIFIED_ART_GENERAL_CATEGORIES : VERIFIED_ART_ARTIST_CATEGORIES;
+  const artCat = pool[Math.floor(rng() * pool.length)];
+  return { categoryName: artCat, allowPrefix: true };
 }
 
 function parseWikiBatchPageToItem(
@@ -389,10 +417,11 @@ function parseWikiBatchPageToItem(
 async function fetchLiveBatch(
   concreteCategory: WorkCategory,
   rng: () => number = Math.random,
-  forceNoPrefix: boolean = false
+  forceNoPrefix: boolean = false,
+  preferDiverseArt: boolean = false
 ): Promise<CulturalItem[]> {
-  const source = pickCategorySource(concreteCategory, rng);
-  const usePrefix = !forceNoPrefix && rng() < 0.75;
+  const source = pickCategorySource(concreteCategory, rng, preferDiverseArt);
+  const usePrefix = source.allowPrefix && !forceNoPrefix && rng() < 0.72;
   const letter = SORT_PREFIXES[Math.floor(rng() * SORT_PREFIXES.length)];
 
   const prefixParam = usePrefix ? `&gcmstartsortkeyprefix=${letter}` : '';
@@ -405,7 +434,7 @@ async function fetchLiveBatch(
     `&exintro=1&explaintext=1&exsentences=3&exlimit=20` +
     `&inprop=canonicalurl&format=json&origin=*`;
 
-  const data = await fetchJsonThrottled(url, 2);
+  const data = await fetchJsonThrottled(url, 3);
   const pages = Object.values(data?.query?.pages || {}) as any[];
   if (pages.length === 0) return [];
 
@@ -419,6 +448,35 @@ async function fetchLiveBatch(
   }
 
   return parsed;
+}
+
+const GENERIC_CREATORS = new Set([
+  'acclaimed musician',
+  'acclaimed author',
+  'master painter',
+]);
+
+function isMeaningfulCreator(creator: string): boolean {
+  const norm = (creator || '').trim().toLowerCase();
+  return norm.length > 1 && !GENERIC_CREATORS.has(norm);
+}
+
+function countDistinctCreators(items: readonly CulturalItem[]): number {
+  const creators = new Set<string>();
+  for (const item of items) {
+    if (isMeaningfulCreator(item.creator)) {
+      creators.add(item.creator.trim().toLowerCase());
+    }
+  }
+  return creators.size;
+}
+
+function shuffleInPlace<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
 }
 
 function pushToDistractorBank(item: CulturalItem) {
@@ -447,30 +505,71 @@ export function getLivePoolDistractors(category: Category): CulturalItem[] {
 
 // ---------------- SOLO QUEUE & PREWARM ----------------
 
-export async function refillLiveQueue(category: Category, minQueueSize: number = 8): Promise<void> {
+const MAX_QUEUE_ADD_PER_BATCH = 3;
+
+export async function refillLiveQueue(
+  category: Category,
+  minQueueSize: number = 6,
+  minDistinctCreators: number = 6
+): Promise<void> {
   if (category === 'everything') {
-    await Promise.all(WORK_CATEGORIES.map(cat => refillLiveQueue(cat, minQueueSize)));
+    for (const cat of WORK_CATEGORIES) {
+      await refillLiveQueue(cat, minQueueSize, minDistinctCreators);
+    }
     return;
   }
 
-  if (liveQueue[category].length >= minQueueSize) return;
-  if (inflightQueueRefills[category]) {
+  const needsQueue = () => liveQueue[category].length < minQueueSize;
+  const needsCreators = () =>
+    countDistinctCreators(liveDistractorBank[category]) < minDistinctCreators ||
+    liveDistractorBank[category].length < 8;
+
+  if (!needsQueue() && !needsCreators()) return;
+
+  while (inflightQueueRefills[category]) {
     await inflightQueueRefills[category];
-    return;
   }
+
+  if (!needsQueue() && !needsCreators()) return;
 
   const work = (async () => {
     const queuedSlugs = new Set(liveQueue[category].map(it => it.wikiSlug));
-    for (let attempt = 0; attempt < 4 && liveQueue[category].length < minQueueSize; attempt++) {
-      const batch = await fetchLiveBatch(category, Math.random, attempt >= 2);
-      const fresh = batch
-        .filter(it => !queuedSlugs.has(it.wikiSlug) && !seenSlugsSession.has(it.wikiSlug))
-        .sort(() => Math.random() - 0.5);
+    const queuedCreators = new Set(
+      liveQueue[category].map(it => it.creator.trim().toLowerCase())
+    );
 
+    for (let attempt = 0; attempt < 5 && (needsQueue() || needsCreators()); attempt++) {
+      const preferDiverseArt = needsCreators();
+      const batch = await fetchLiveBatch(category, Math.random, attempt >= 3, preferDiverseArt);
+      const fresh = shuffleInPlace(
+        batch.filter(it => !queuedSlugs.has(it.wikiSlug) && !seenSlugsSession.has(it.wikiSlug))
+      );
+
+      // Prefer unseen creators first and cap intake per batch so consecutive Solo rounds span eras/creators
+      const distinctCreatorItems: CulturalItem[] = [];
+      const sameCreatorItems: CulturalItem[] = [];
       for (const item of fresh) {
-        queuedSlugs.add(item.wikiSlug);
-        liveQueue[category].push(item);
+        const cKey = item.creator.trim().toLowerCase();
+        if (!queuedCreators.has(cKey)) {
+          distinctCreatorItems.push(item);
+        } else {
+          sameCreatorItems.push(item);
+        }
       }
+      const prioritized = [...distinctCreatorItems, ...sameCreatorItems];
+
+      let addedFromBatch = 0;
+      for (const item of prioritized) {
+        if (addedFromBatch >= MAX_QUEUE_ADD_PER_BATCH) break;
+        queuedSlugs.add(item.wikiSlug);
+        queuedCreators.add(item.creator.trim().toLowerCase());
+        liveQueue[category].push(item);
+        addedFromBatch++;
+      }
+    }
+
+    if (liveQueue[category].length > 1) {
+      shuffleInPlace(liveQueue[category]);
     }
   })().finally(() => {
     delete inflightQueueRefills[category];
@@ -489,7 +588,7 @@ export async function fetchLiveRandomItem(
 ): Promise<CulturalItem | null> {
   const concreteCategory = pickConcreteCategory(category);
   for (let attempt = 0; attempt < 4; attempt++) {
-    const batch = await fetchLiveBatch(concreteCategory, Math.random, attempt >= 2);
+    const batch = await fetchLiveBatch(concreteCategory, Math.random, attempt >= 2, attempt >= 1);
     const eligible = batch.filter(
       it => !seenSlugs.has(it.wikiSlug) && !seenSlugs.has(it.id) && !seenSlugsSession.has(it.wikiSlug)
     );
@@ -506,7 +605,8 @@ export async function fetchLiveRandomItem(
 
 /**
  * Returns the next Solo live round item.
- * Always prioritizes fresh live Wikipedia pools across retries before falling back to offline catalog.
+ * Ensures both the live queue AND a diverse live distractor bank (>= 6 distinct creators)
+ * are stocked BEFORE returning Round 1 so Easy choices never start from stored lists.
  */
 export async function getNextLiveRoundItem(
   category: Category,
@@ -514,26 +614,25 @@ export async function getNextLiveRoundItem(
 ): Promise<CulturalItem> {
   const concreteCategory = pickConcreteCategory(category);
 
-  // Pull immediately from buffered live queue if stocked
-  while (liveQueue[concreteCategory].length > 0) {
-    const buffered = liveQueue[concreteCategory].shift()!;
-    if (!seenSlugs.has(buffered.id) && !seenSlugs.has(buffered.wikiSlug)) {
-      seenSlugsSession.add(buffered.wikiSlug);
-      setTimeout(() => refillLiveQueue(concreteCategory, 8).catch(() => {}), 300);
-      if (buffered.category === 'books') return await resolveSafeBookCoverItem(buffered);
-      if (buffered.category === 'music') return await resolveSafeMusicCoverItem(buffered);
-      return buffered;
-    }
-  }
+  liveQueue[concreteCategory] = liveQueue[concreteCategory].filter(
+    it => !seenSlugs.has(it.id) && !seenSlugs.has(it.wikiSlug)
+  );
 
-  // Refill live batch right now (stocks BOTH round queue AND distractor bank!)
-  await refillLiveQueue(concreteCategory, 8);
+  if (
+    liveQueue[concreteCategory].length === 0 ||
+    countDistinctCreators(liveDistractorBank[concreteCategory]) < 6 ||
+    liveDistractorBank[concreteCategory].length < 8
+  ) {
+    await refillLiveQueue(concreteCategory, 6, 6);
+  }
 
   while (liveQueue[concreteCategory].length > 0) {
     const fetched = liveQueue[concreteCategory].shift()!;
     if (!seenSlugs.has(fetched.id) && !seenSlugs.has(fetched.wikiSlug)) {
       seenSlugsSession.add(fetched.wikiSlug);
-      setTimeout(() => refillLiveQueue(concreteCategory, 8).catch(() => {}), 300);
+      if (liveQueue[concreteCategory].length < 4) {
+        setTimeout(() => refillLiveQueue(concreteCategory, 6, 6).catch(() => {}), 320);
+      }
       if (fetched.category === 'books') return await resolveSafeBookCoverItem(fetched);
       if (fetched.category === 'music') return await resolveSafeMusicCoverItem(fetched);
       return fetched;
@@ -543,7 +642,7 @@ export async function getNextLiveRoundItem(
   // Last-resort direct fetch before touching stored catalog
   const liveDirect = await fetchLiveRandomItem(concreteCategory, seenSlugs);
   if (liveDirect) {
-    setTimeout(() => refillLiveQueue(concreteCategory, 8).catch(() => {}), 300);
+    setTimeout(() => refillLiveQueue(concreteCategory, 6, 6).catch(() => {}), 320);
     return liveDirect;
   }
 
@@ -559,10 +658,49 @@ export async function getNextLiveRoundItem(
   return fallback;
 }
 
-export function prewarmLiveQueues() {
-  WORK_CATEGORIES.forEach(cat => {
-    refillLiveQueue(cat, 8).catch(() => {});
-  });
+let prewarmRunning = false;
+let preferredPrewarmCategory: WorkCategory | null = null;
+
+export function prewarmLiveQueues(priorityCategory?: Category) {
+  if (priorityCategory && priorityCategory !== 'everything') {
+    preferredPrewarmCategory = priorityCategory;
+  }
+  if (prewarmRunning) return;
+  prewarmRunning = true;
+
+  (async () => {
+    try {
+      const visited = new Set<WorkCategory>();
+      const nextTarget = (): WorkCategory | null => {
+        if (preferredPrewarmCategory && !visited.has(preferredPrewarmCategory)) {
+          const picked = preferredPrewarmCategory;
+          visited.add(picked);
+          return picked;
+        }
+        for (const cat of WORK_CATEGORIES) {
+          if (!visited.has(cat)) {
+            visited.add(cat);
+            return cat;
+          }
+        }
+        return null;
+      };
+
+      let cat: WorkCategory | null;
+      while ((cat = nextTarget()) !== null) {
+        const needsWarm =
+          liveQueue[cat].length < 3 ||
+          countDistinctCreators(liveDistractorBank[cat]) < 6 ||
+          liveDistractorBank[cat].length < 8;
+        if (needsWarm) {
+          await refillLiveQueue(cat, 3, 6).catch(() => {});
+          await new Promise(r => setTimeout(r, 320));
+        }
+      }
+    } finally {
+      prewarmRunning = false;
+    }
+  })();
 }
 
 // ---------------- MULTIPLAYER ZERO-DRIFT ROOM ENGINE ----------------
@@ -625,7 +763,8 @@ export async function buildMultiplayerLiveRoomPool(
   hydratedItems: CulturalItem[];
 }> {
   const targetRoundCount = gameMode === 'forever' ? 10 : 5;
-  const targetDistractorCount = 8;
+  const targetDistractorCount =
+    category === 'everything' ? (gameMode === 'forever' ? 6 : 9) : 8;
   const totalNeeded = targetRoundCount + targetDistractorCount;
 
   const pickedItems: CulturalItem[] = [];
@@ -635,27 +774,42 @@ export async function buildMultiplayerLiveRoomPool(
     category === 'everything' ? ['music', 'books', 'art'] : [category];
 
   // Fetch fresh batches directly from live Wikipedia (never starting from stored CULTURAL_ITEMS!)
-  const batchesPerCategory = category === 'everything' ? 2 : 4;
-  for (let pass = 0; pass < batchesPerCategory && pickedItems.length < totalNeeded; pass++) {
+  // Ensure every active category reaches diverse creators and works from different batches
+  const targetPerCat =
+    category === 'everything' ? Math.max(7, Math.ceil(targetRoundCount / 3) + 4) : totalNeeded;
+  const maxPasses = category === 'everything' ? 3 : 5;
+  const maxFromSingleBatch = category === 'everything' ? 6 : 5;
+
+  for (let pass = 0; pass < maxPasses; pass++) {
+    let allSatisfied = true;
     for (const workCat of targetCats) {
-      if (pickedItems.length >= totalNeeded) break;
-      const batch = await fetchLiveBatch(workCat, Math.random, pass >= batchesPerCategory - 1);
-      const shuffled = [...batch].sort(() => Math.random() - 0.5);
+      const catItems = pickedItems.filter(it => it.category === workCat);
+      const needsMore =
+        catItems.length < targetPerCat || countDistinctCreators(catItems) < 6;
+      if (!needsMore) continue;
+
+      allSatisfied = false;
+      const batch = await fetchLiveBatch(workCat, Math.random, pass >= maxPasses - 1, pass >= 1);
+      const shuffled = shuffleInPlace([...batch]);
+      let addedThisBatch = 0;
       for (const item of shuffled) {
         if (usedSlugs.has(item.wikiSlug)) continue;
         usedSlugs.add(item.wikiSlug);
         pickedItems.push(item);
+        addedThisBatch++;
+        if (addedThisBatch >= maxFromSingleBatch) break;
       }
     }
+    if (allSatisfied) break;
   }
 
   // Interleave categories evenly in Everything Mix before slicing rounds vs distractors
   let balancedPool: CulturalItem[] = pickedItems;
   if (category === 'everything') {
     const byCat: Record<WorkCategory, CulturalItem[]> = {
-      music: pickedItems.filter(i => i.category === 'music').sort(() => Math.random() - 0.5),
-      books: pickedItems.filter(i => i.category === 'books').sort(() => Math.random() - 0.5),
-      art: pickedItems.filter(i => i.category === 'art').sort(() => Math.random() - 0.5),
+      music: shuffleInPlace(pickedItems.filter(i => i.category === 'music')),
+      books: shuffleInPlace(pickedItems.filter(i => i.category === 'books')),
+      art: shuffleInPlace(pickedItems.filter(i => i.category === 'art')),
     };
     const roundBuckets: CulturalItem[] = [];
     const offset = Math.floor(Math.random() * 3);
@@ -668,10 +822,16 @@ export async function buildMultiplayerLiveRoomPool(
         break;
       }
     }
-    const leftovers = [...byCat.music, ...byCat.books, ...byCat.art];
+    const leftovers: CulturalItem[] = [];
+    while (byCat.music.length || byCat.books.length || byCat.art.length) {
+      for (const cat of WORK_CATEGORIES) {
+        const next = byCat[cat].shift();
+        if (next) leftovers.push(next);
+      }
+    }
     balancedPool = [...roundBuckets, ...leftovers];
   } else {
-    balancedPool = [...pickedItems].sort(() => Math.random() - 0.5);
+    balancedPool = shuffleInPlace([...pickedItems]);
   }
 
   // Offline emergency tail ONLY if Wikipedia failed to provide enough live rounds
@@ -851,7 +1011,7 @@ export async function getSeededChallengeRoundItem(
     const concreteCategory = pickConcreteCategory(category, probeRng);
     const source = pickCategorySource(concreteCategory, probeRng);
     const letter = SORT_PREFIXES[Math.floor(probeRng() * SORT_PREFIXES.length)];
-    const prefixParam = probe < 3 ? `&gcmstartsortkeyprefix=${letter}` : '';
+    const prefixParam = source.allowPrefix && probe < 3 ? `&gcmstartsortkeyprefix=${letter}` : '';
 
     const url =
       `https://en.wikipedia.org/w/api.php?action=query&generator=categorymembers` +

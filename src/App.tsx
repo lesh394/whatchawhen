@@ -129,29 +129,32 @@ export function App() {
     }
   });
 
-  // Prewarm Wikipedia live queues + distractor pools on initial load
+  // Prewarm Wikipedia live queues + distractor pools sequentially, prioritizing active category
   useEffect(() => {
-    prewarmLiveQueues();
-  }, []);
+    if (gamePhase === 'home') {
+      prewarmLiveQueues(category);
+    }
+  }, [category, gamePhase]);
 
   const totalRounds = gameMode === 'classic' ? 5 : 999;
   const currentScore = results.reduce((sum, r) => sum + r.totalPoints, 0);
   const theme = CATEGORY_THEMES[category];
   const knownItems = useMemo(() => getAllKnownItems(), []);
+  const currentRoundItem = roundItems[roundIndex % Math.max(1, roundItems.length)];
 
-  // Snapshot live pool distractors per round so Easy options stay stable mid-round
-  // while always originating from the random live Wikipedia pool (not stored items)
+  // Snapshot live pool distractors per round item so Easy options stay stable mid-round
+  // while always originating from the random live Wikipedia pool (never stored items)
   const easyLivePool = useMemo(() => {
     const liveBank = getLivePoolDistractors(category);
     return [...liveBank, ...roundItems];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roundIndex, category, activeChallenge?.id, roundItems.length]);
+  }, [currentRoundItem?.id, category, activeChallenge?.id, roundItems.length]);
 
   const autocompleteItems = useMemo(() => {
     const liveBank = getLivePoolDistractors(category);
     return [...liveBank, ...roundItems, ...knownItems];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roundIndex, category, knownItems, roundItems.length]);
+  }, [currentRoundItem?.id, category, knownItems, roundItems.length]);
 
   const savedRoomSnapshot = useMemo(() => {
     if (!challengeModal.isOpen || challengeModal.mode !== 'join') return null;
@@ -350,14 +353,16 @@ export function App() {
     let wikiUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(currentItem.wikiSlug)}`;
     let wikiThumbnail = currentItem.image;
 
-    try {
-      const summary = await fetchWikiSummary(currentItem.wikiSlug);
-      if (summary) {
-        if (summary.extract) wikiExtract = summary.extract;
-        if (summary.url) wikiUrl = summary.url;
-        if (summary.thumbnail && !currentItem.altCoverApplied) wikiThumbnail = summary.thumbnail;
-      }
-    } catch {}
+    if (!wikiExtract) {
+      try {
+        const summary = await fetchWikiSummary(currentItem.wikiSlug);
+        if (summary) {
+          if (summary.extract) wikiExtract = summary.extract;
+          if (summary.url) wikiUrl = summary.url;
+          if (summary.thumbnail && !currentItem.altCoverApplied) wikiThumbnail = summary.thumbnail;
+        }
+      } catch {}
+    }
 
     const roundRes: RoundResult = {
       ...evaluated,
