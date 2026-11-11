@@ -379,48 +379,92 @@ export function generateEasyOptions(
   fallbackCatalogItems: readonly CulturalItem[] = [],
   config: EasyOptionsConfig = {}
 ): EasyRoundOptions {
-  const rng = deterministicSeed ? createSeededRng(deterministicSeed) : Math.random;
+  const makeStream = (suffix: string): (() => number) => {
+    if (!deterministicSeed) return Math.random;
+    const prng = createSeededRng(`${deterministicSeed}:${suffix}`);
+    // Warm up Mulberry32 state so sequential round/slot seeds have full bit avalanche
+    prng();
+    prng();
+    prng();
+    prng();
+    return prng;
+  };
+  const yearRng = makeStream('years');
+  const pickRng = makeStream('pick');
+  const orderRng = makeStream('order');
   const { usedCounts = {}, futureTargetKeys } = config;
 
-  // 1. Dynamic Year Generation with randomized offset combinations
+  // 1. Dynamic Year Generation across all 4 relative-rank spreads, then unbiased shuffle across all 4 slots
+  const catMinYear =
+    targetItem.category === 'music'
+      ? Math.min(1950, targetItem.year)
+      : targetItem.category === 'books'
+      ? Math.min(1600, targetItem.year)
+      : Math.min(1400, targetItem.year);
+  const maxYearBound = 2026;
+
   const yearsSet = new Set<number>();
   yearsSet.add(targetItem.year);
 
   const offsetCombos = [
-    [-14, -6, +8],
+    // Target earliest of the 4 (when bounds permit)
+    [+4, +11, +21],
+    [+6, +14, +24],
+    [+5, +13, +27],
+    [+8, +17, +29],
+    // Target 2nd earliest
     [-9, +5, +16],
-    [-22, -8, +12],
     [-15, +7, +21],
     [-7, +9, +18],
-    [-11, -3, +14],
-    [-18, +6, +15],
     [-12, +11, +25],
+    // Target 3rd earliest
+    [-14, -6, +8],
+    [-22, -8, +12],
+    [-11, -4, +14],
+    [-19, -7, +10],
+    // Target latest of the 4 (when bounds permit)
+    [-21, -11, -4],
+    [-24, -14, -6],
+    [-27, -13, -5],
+    [-29, -17, -7],
   ];
 
-  const chosenCombo = offsetCombos[Math.floor(rng() * offsetCombos.length)];
-  const jitter = () => Math.floor(rng() * 5) - 2; // -2 to +2 jitter
+  const validCombos = offsetCombos.filter(combo =>
+    combo.every(
+      off => targetItem.year + off >= catMinYear && targetItem.year + off <= maxYearBound
+    )
+  );
+  const comboPool = validCombos.length > 0 ? validCombos : offsetCombos;
+  const chosenCombo = comboPool[Math.floor(yearRng() * comboPool.length)];
+  const jitter = () => Math.floor(yearRng() * 5) - 2; // -2 to +2 jitter
 
   for (const off of chosenCombo) {
     const candidate = targetItem.year + off + jitter();
-    if (candidate >= 1400 && candidate <= 2026 && !yearsSet.has(candidate)) {
+    if (candidate >= catMinYear && candidate <= maxYearBound && !yearsSet.has(candidate)) {
       yearsSet.add(candidate);
     }
   }
 
-  // Fallback random years if collisions occurred
-  while (yearsSet.size < 4) {
-    const randomYear = targetItem.category === 'music'
-      ? Math.floor(rng() * 68) + 1956
-      : targetItem.category === 'books'
-      ? Math.floor(rng() * 320) + 1700
-      : Math.floor(rng() * 520) + 1450;
+  // Fallback random nearby years first (clamped to category range), then full category span
+  let nearbyAttempts = 0;
+  while (yearsSet.size < 4 && nearbyAttempts < 40) {
+    nearbyAttempts++;
+    const delta = Math.floor(yearRng() * 61) - 30;
+    const candidate = targetItem.year + delta;
+    if (candidate >= catMinYear && candidate <= maxYearBound && !yearsSet.has(candidate)) {
+      yearsSet.add(candidate);
+    }
+  }
 
+  while (yearsSet.size < 4) {
+    const span = Math.max(10, maxYearBound - catMinYear + 1);
+    const randomYear = catMinYear + Math.floor(yearRng() * span);
     if (!yearsSet.has(randomYear)) {
       yearsSet.add(randomYear);
     }
   }
 
-  const years = Array.from(yearsSet).sort((a, b) => a - b);
+  const years = seededShuffle(Array.from(yearsSet), yearRng);
 
   // 2. Identification Choices: Live Random Pool FIRST, stored fallback ONLY if < 3 available
   const targetTitleLower = targetItem.title.trim().toLowerCase();
@@ -485,7 +529,7 @@ export function generateEasyOptions(
     for (const rank of sortedRanks) {
       if (chosenDistractors.length >= 3) break;
       const bucket = buckets.get(rank)!;
-      for (const d of seededShuffle(bucket, rng)) {
+      for (const d of seededShuffle(bucket, pickRng)) {
         const key = toEasyOptionKey(d.title, d.creator);
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
@@ -534,7 +578,7 @@ export function generateEasyOptions(
     })),
   ];
 
-  const identifications = seededShuffle(rawIdentifications, rng);
+  const identifications = seededShuffle(rawIdentifications, orderRng);
 
   return {
     years,
