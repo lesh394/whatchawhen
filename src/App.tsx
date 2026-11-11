@@ -570,11 +570,6 @@ export function App() {
         )}
       </main>
 
-      {/* Minimalist Footer */}
-      <footer className="w-full border-t-2 border-[#432313] bg-[#1a0c06] py-2 px-4 text-center text-[10px] font-pixel-ui text-[#b88c60] flex items-center justify-center relative z-10 select-none">
-        <span>Built indie • Data via Wikipedia</span>
-      </footer>
-
       {/* Help Modal */}
       <HelpModal
         isOpen={isHelpOpen}
