@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Category, GameMode, Difficulty, GamePhase, CulturalItem, RoundGuess, RoundResult } from './types';
 import { CATEGORY_THEMES } from './config/themes';
 import { CULTURAL_ITEMS } from './data/items';
-import { 
+import {
+  buildMultiplayerLiveRoomPool,
+  getLivePoolDistractors,
   getNextLiveRoundItem,
   getSeededChallengeRoundItem,
-  prewarmLiveQueues 
+  hydrateMultiplayerItems,
+  prewarmLiveQueues,
 } from './services/liveWikipediaEngine';
 import { getAllKnownItems } from './services/infinitePool';
 import { evaluateRound } from './services/scoring';
@@ -18,6 +21,7 @@ import {
   parseChallengeFromLocation,
   buildChallengeUrl,
   clearChallengeFromUrl,
+  loadRoomRunSnapshot,
 } from './services/multiplayer';
 import { Header } from './components/Header';
 import { HomeScreen } from './components/HomeScreen';
@@ -43,7 +47,7 @@ export function App() {
   );
   const [gamePhase, setGamePhase] = useState<GamePhase>('home');
 
-  // 2P Challenge State
+  // Multiplayer Challenge State
   const [activeChallenge, setActiveChallenge] = useState<MultiplayerChallenge | null>(
     () => initialInvite?.challenge ?? null
   );
@@ -65,12 +69,21 @@ export function App() {
     mode: initialInvite ? 'join' : 'create',
   }));
   const [challengePlayerName, setChallengePlayerName] = useState<string>(() =>
-    initialInvite ? 'Player 2' : 'Player 1'
+    initialInvite
+      ? `Player ${(initialInvite.opponentResults?.length || 0) + 2}`
+      : 'Player 1'
   );
-  const [opponentResultFromUrl, setOpponentResultFromUrl] = useState<
-    MultiplayerScoreSummary | undefined
-  >(() => initialInvite?.opponentResult);
-  const [usedChallengeSlugs, setUsedChallengeSlugs] = useState<Set<string>>(new Set());
+  const [opponentResultsFromUrl, setOpponentResultsFromUrl] = useState<
+    MultiplayerScoreSummary[]
+  >(() => initialInvite?.opponentResults ?? []);
+  const [isGeneratingRoom, setIsGeneratingRoom] = useState<boolean>(false);
+
+  // Cached hydrated items for the current/draft Multiplayer manifest
+  const hydratedManifestRef = useRef<{ challengeId: string; items: CulturalItem[] }>({
+    challengeId: '',
+    items: [],
+  });
+  const roomGenSeqRef = useRef<number>(0);
 
   // Match State
   const [roundItems, setRoundItems] = useState<CulturalItem[]>([]);
@@ -82,7 +95,7 @@ export function App() {
   // Perfect Bullseye Streak Counter
   const [streakMultiplier, setStreakMultiplier] = useState<number>(0);
 
-  // Anti-Recycle tracker: prevents the same options/items from repeating across games
+  // Anti-Recycle tracker: prevents items from repeating across solo runs
   const [seenItemIds, setSeenItemIds] = useState<Set<string>>(new Set());
 
   // Hints: 1 hint token for the entire match/level by default
@@ -116,7 +129,7 @@ export function App() {
     }
   });
 
-  // Prewarm Wikipedia live queues on initial load
+  // Prewarm Wikipedia live queues + distractor pools on initial load
   useEffect(() => {
     prewarmLiveQueues();
   }, []);
@@ -126,7 +139,71 @@ export function App() {
   const theme = CATEGORY_THEMES[category];
   const knownItems = useMemo(() => getAllKnownItems(), []);
 
-  // Start a new match (either Solo live Wikipedia OR 2P seeded Challenge)
+  // Snapshot live pool distractors per round so Easy options stay stable mid-round
+  // while always originating from the random live Wikipedia pool (not stored items)
+  const easyLivePool = useMemo(() => {
+    const liveBank = getLivePoolDistractors(category);
+    return [...liveBank, ...roundItems];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roundIndex, category, activeChallenge?.id, roundItems.length]);
+
+  const autocompleteItems = useMemo(() => {
+    const liveBank = getLivePoolDistractors(category);
+    return [...liveBank, ...roundItems, ...knownItems];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roundIndex, category, knownItems, roundItems.length]);
+
+  const savedRoomSnapshot = useMemo(() => {
+    if (!challengeModal.isOpen || challengeModal.mode !== 'join') return null;
+    return loadRoomRunSnapshot(draftChallenge.id);
+  }, [challengeModal.isOpen, challengeModal.mode, draftChallenge.id]);
+
+  // Generate fresh live Wikipedia room manifest for Multiplayer creation/reroll
+  const generateLiveMultiplayerDraft = async (
+    targetCat: Category,
+    targetDiff: Difficulty,
+    targetMode: GameMode,
+    hostName: string
+  ) => {
+    const seq = ++roomGenSeqRef.current;
+    const newId = generateChallengeId();
+    setIsGeneratingRoom(true);
+    setDraftChallenge({
+      id: newId,
+      category: targetCat,
+      difficulty: targetDiff,
+      gameMode: targetMode,
+      hostName,
+    });
+
+    try {
+      const { manifest, distractors, hydratedItems } = await buildMultiplayerLiveRoomPool(
+        targetCat,
+        targetMode
+      );
+      if (roomGenSeqRef.current !== seq) return;
+
+      hydratedManifestRef.current = {
+        challengeId: newId,
+        items: hydratedItems,
+      };
+      setDraftChallenge(prev =>
+        prev.id === newId
+          ? {
+              ...prev,
+              manifest,
+              distractors,
+            }
+          : prev
+      );
+    } finally {
+      if (roomGenSeqRef.current === seq) {
+        setIsGeneratingRoom(false);
+      }
+    }
+  };
+
+  // Start a new match (either Solo live Wikipedia OR Multiplayer locked manifest)
   const startMatch = async (
     targetChallenge: MultiplayerChallenge | null,
     overrideCategory?: Category
@@ -146,8 +223,7 @@ export function App() {
     } else {
       if (overrideCategory) setCategory(overrideCategory);
       setActiveChallenge(null);
-      setOpponentResultFromUrl(undefined);
-      setUsedChallengeSlugs(new Set());
+      setOpponentResultsFromUrl([]);
       clearChallengeFromUrl();
     }
 
@@ -155,15 +231,28 @@ export function App() {
     try {
       let firstItem: CulturalItem;
       if (targetChallenge) {
-        const freshSlugs = new Set<string>();
+        let hydratedItems =
+          hydratedManifestRef.current.challengeId === targetChallenge.id
+            ? hydratedManifestRef.current.items
+            : [];
+
+        if (
+          hydratedItems.length === 0 &&
+          targetChallenge.manifest &&
+          targetChallenge.manifest.length > 0
+        ) {
+          hydratedItems = await hydrateMultiplayerItems(targetChallenge);
+          hydratedManifestRef.current = {
+            challengeId: targetChallenge.id,
+            items: hydratedItems,
+          };
+        }
+
         firstItem = await getSeededChallengeRoundItem(
-          targetChallenge.category,
-          targetChallenge.id,
+          targetChallenge,
           0,
-          freshSlugs
+          hydratedItems
         );
-        freshSlugs.add(firstItem.wikiSlug);
-        setUsedChallengeSlugs(freshSlugs);
       } else {
         firstItem = await getNextLiveRoundItem(activeCat, seenItemIds);
         const newSeen = new Set(seenItemIds);
@@ -186,23 +275,25 @@ export function App() {
   };
 
   const handleOpenMultiplayer = () => {
-    setOpponentResultFromUrl(undefined);
+    setOpponentResultsFromUrl([]);
     const freshHostName = challengePlayerName.trim() || 'Player 1';
     setChallengePlayerName(freshHostName);
-    setDraftChallenge({
-      id: generateChallengeId(),
-      category,
-      difficulty,
-      gameMode,
-      hostName: freshHostName,
-    });
     setChallengeModal({ isOpen: true, mode: 'create' });
+    generateLiveMultiplayerDraft(category, difficulty, gameMode, freshHostName);
+  };
+
+  const handleRerollMultiplayerRoom = () => {
+    const freshHostName = challengePlayerName.trim() || 'Player 1';
+    generateLiveMultiplayerDraft(category, difficulty, gameMode, freshHostName);
   };
 
   const handleStartFromChallengeModal = () => {
+    if (isGeneratingRoom) return;
     const cleanName =
       challengePlayerName.trim() ||
-      (challengeModal.mode === 'join' ? 'Player 2' : 'Player 1');
+      (challengeModal.mode === 'join'
+        ? `Player ${(opponentResultsFromUrl.length || 0) + 2}`
+        : 'Player 1');
     setChallengePlayerName(cleanName);
 
     const resolvedChallenge: MultiplayerChallenge =
@@ -214,18 +305,31 @@ export function App() {
     startMatch(resolvedChallenge);
   };
 
+  const handleViewSavedRoomLeaderboard = () => {
+    if (!savedRoomSnapshot) return;
+    setCategory(draftChallenge.category);
+    setDifficulty(draftChallenge.difficulty);
+    setGameMode(draftChallenge.gameMode);
+    setActiveChallenge(draftChallenge);
+    setChallengePlayerName(savedRoomSnapshot.playerName);
+    setResults(savedRoomSnapshot.results);
+    setCurrentHp(savedRoomSnapshot.finalHp);
+    setRoundItems(savedRoomSnapshot.results.map(r => r.item));
+    setRoundIndex(Math.max(0, savedRoomSnapshot.results.length - 1));
+    setChallengeModal(prev => ({ ...prev, isOpen: false }));
+    setGamePhase('gameover');
+  };
+
   const handleDismissChallenge = () => {
     setActiveChallenge(null);
-    setOpponentResultFromUrl(undefined);
-    setUsedChallengeSlugs(new Set());
+    setOpponentResultsFromUrl([]);
     clearChallengeFromUrl();
     setChallengeModal(prev => ({ ...prev, isOpen: false }));
   };
 
   const handleGoHome = () => {
     setActiveChallenge(null);
-    setOpponentResultFromUrl(undefined);
-    setUsedChallengeSlugs(new Set());
+    setOpponentResultsFromUrl([]);
     clearChallengeFromUrl();
     setGamePhase('home');
   };
@@ -314,15 +418,15 @@ export function App() {
       setIsLoadingLiveItem(true);
       try {
         if (activeChallenge) {
+          const hydratedItems =
+            hydratedManifestRef.current.challengeId === activeChallenge.id
+              ? hydratedManifestRef.current.items
+              : [];
           const nextItem = await getSeededChallengeRoundItem(
-            activeChallenge.category,
-            activeChallenge.id,
+            activeChallenge,
             nextIndex,
-            usedChallengeSlugs
+            hydratedItems
           );
-          const nextSlugs = new Set(usedChallengeSlugs);
-          nextSlugs.add(nextItem.wikiSlug);
-          setUsedChallengeSlugs(nextSlugs);
           setRoundItems(prev => [...prev, nextItem]);
         } else {
           const nextItem = await getNextLiveRoundItem(category, seenItemIds);
@@ -347,7 +451,7 @@ export function App() {
   };
 
   return (
-    <div 
+    <div
       className={`min-h-screen flex flex-col relative transition-colors duration-500 bg-gradient-to-b ${theme.bgTexture} text-[#ffebc4]`}
     >
       {/* 2D Pixel Animated Background Characters & Floating Symbols */}
@@ -396,7 +500,9 @@ export function App() {
             hintTokens={hintTokens}
             onUseHint={handleUseHint}
             onSubmitGuess={handleSubmitGuess}
-            allItems={activeChallenge ? CULTURAL_ITEMS : knownItems}
+            allItems={autocompleteItems}
+            easyLivePool={easyLivePool}
+            fallbackCatalogItems={CULTURAL_ITEMS}
             challenge={activeChallenge}
             roundIndex={roundIndex}
           />
@@ -424,9 +530,10 @@ export function App() {
             onGoHome={handleGoHome}
             challenge={activeChallenge}
             playerName={challengePlayerName}
-            initialOpponentResult={opponentResultFromUrl}
+            initialOpponentResults={opponentResultsFromUrl}
           />
         )}
+
         {/* Live Wikipedia Fetching Modal Overlay */}
         {isLoadingLiveItem && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
@@ -457,7 +564,7 @@ export function App() {
         onClose={() => setIsHelpOpen(false)}
       />
 
-      {/* 2P Multiplayer Challenge Modal */}
+      {/* Multiplayer Challenge Room Modal (2+ Players) */}
       <MultiplayerModal
         isOpen={challengeModal.isOpen}
         mode={challengeModal.mode}
@@ -472,10 +579,18 @@ export function App() {
             }));
           }
         }}
-        opponentResult={opponentResultFromUrl}
+        opponentResults={opponentResultsFromUrl}
+        isGeneratingRoom={isGeneratingRoom}
+        hasSavedRunForRoom={Boolean(savedRoomSnapshot)}
+        onViewSavedRoomLeaderboard={handleViewSavedRoomLeaderboard}
+        onRerollRoom={handleRerollMultiplayerRoom}
         onStartChallenge={handleStartFromChallengeModal}
         onDismissChallenge={handleDismissChallenge}
-        onClose={() => setChallengeModal(prev => ({ ...prev, isOpen: false }))}
+        onClose={() => {
+          roomGenSeqRef.current++;
+          setIsGeneratingRoom(false);
+          setChallengeModal(prev => ({ ...prev, isOpen: false }));
+        }}
       />
     </div>
   );

@@ -54,7 +54,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
               <div>• <strong className="text-emerald-300">🌱 Easy:</strong> 4 multiple-choice picks and super forgiving timing.</div>
               <div>• <strong className="text-amber-300">🌾 Normal:</strong> Type or slide yourself, stricter scoring, plus 1 free hint (or watch a goofy fake ad for another).</div>
               <div>• <strong className="text-rose-300">⚔️ Hard:</strong> Pure memory. Tight year window, no hints, and no autocomplete.</div>
-              <div>• <strong className="text-sky-300">⚔️ 2P Challenge:</strong> Grab a challenge link so you and a friend get the exact same rounds, choices &amp; hints — even in Forever mode until someone drops.</div>
+              <div>• <strong className="text-sky-300">⚔️ Multiplayer:</strong> Create one room link for 2 or more friends — everyone gets the exact same live rounds, covers, choices &amp; hints on one shared leaderboard.</div>
             </div>
           </div>
 

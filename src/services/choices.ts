@@ -346,15 +346,25 @@ export const ART_DISTRACTORS = [
   { title: 'Judith Beheading Holofernes', creator: 'Caravaggio' },
 ];
 
+export interface EasyDistractorSource {
+  category?: CulturalItem['category'];
+  title: string;
+  creator: string;
+  id?: string;
+}
+
 /**
  * Generates varied 4 multiple-choice options for Easy mode.
- * When `deterministicSeed` is supplied (Multiplayer Challenge mode), produces the exact same
- * year choices, distractors, and button order across every player on that challenge link.
+ * Draws distractors from the live random pool first, only falling back to static/stored
+ * distractors if fewer than 3 live items are available.
+ * When `deterministicSeed` is supplied (Multiplayer mode), canonical sorting + Mulberry32
+ * produces the exact same year choices, distractors, and button order across every player.
  */
 export function generateEasyOptions(
   targetItem: CulturalItem,
-  allItems: CulturalItem[],
-  deterministicSeed?: string
+  livePoolItems: readonly EasyDistractorSource[],
+  deterministicSeed?: string,
+  fallbackCatalogItems: readonly CulturalItem[] = []
 ): EasyRoundOptions {
   const rng = deterministicSeed ? createSeededRng(deterministicSeed) : Math.random;
 
@@ -398,40 +408,81 @@ export function generateEasyOptions(
 
   const years = Array.from(yearsSet).sort((a, b) => a - b);
 
-  // 2. Dynamic Identification Choices
-  const distractorPool = targetItem.category === 'music'
-    ? MUSIC_DISTRACTORS
-    : targetItem.category === 'books'
-    ? BOOKS_DISTRACTORS
-    : ART_DISTRACTORS;
+  // 2. Identification Choices: Live Random Pool FIRST, stored fallback ONLY if < 3 available
+  const targetTitleLower = targetItem.title.trim().toLowerCase();
+  const targetCreatorLower = targetItem.creator.trim().toLowerCase();
 
-  // Canonical sort when seeded so client localStorage ordering never alters choices
-  const normalizedItems = deterministicSeed
-    ? [...(allItems || [])].sort((a, b) => a.id.localeCompare(b.id))
-    : allItems || [];
+  const isSameWorkTitle = (title: string) =>
+    (title || '').trim().toLowerCase() === targetTitleLower;
 
-  const catalogDistractors = normalizedItems
-    .filter(it => it.category === targetItem.category && it.id !== targetItem.id)
-    .map(it => ({ title: it.title, creator: it.creator }));
+  const isEligibleDistractor = (
+    d: { title: string; creator: string; category?: CulturalItem['category']; id?: string },
+    allowSameCreator: boolean = false
+  ) => {
+    if (d.category && d.category !== targetItem.category) return false;
+    if (d.id && d.id === targetItem.id) return false;
+    const tLower = (d.title || '').trim().toLowerCase();
+    const cLower = (d.creator || '').trim().toLowerCase();
+    if (!tLower || !cLower) return false;
+    if (isSameWorkTitle(tLower)) return false;
+    if (!allowSameCreator && cLower === targetCreatorLower) return false;
+    return true;
+  };
 
-  const combinedDistractors = [...distractorPool, ...catalogDistractors].filter(d => 
-    d.title.toLowerCase() !== targetItem.title.toLowerCase() &&
-    d.creator.toLowerCase() !== targetItem.creator.toLowerCase()
-  );
-
-  // Fisher-Yates shuffle & deduplicate
-  const seenTitles = new Set<string>();
-  const chosenDistractors: { title: string; creator: string }[] = [];
-
-  const shuffledPool = seededShuffle(combinedDistractors, rng);
-
-  for (const d of shuffledPool) {
-    const key = `${d.title.toLowerCase()}--${d.creator.toLowerCase()}`;
-    if (!seenTitles.has(key)) {
-      seenTitles.add(key);
-      chosenDistractors.push(d);
-      if (chosenDistractors.length >= 3) break;
+  const collectPool = (
+    items: readonly EasyDistractorSource[],
+    allowSameCreator: boolean
+  ) => {
+    const map = new Map<string, { title: string; creator: string }>();
+    for (const entry of items || []) {
+      if (!isEligibleDistractor(entry, allowSameCreator)) continue;
+      const key = `${entry.title.trim().toLowerCase()}--${entry.creator.trim().toLowerCase()}`;
+      if (!map.has(key)) {
+        map.set(key, { title: entry.title.trim(), creator: entry.creator.trim() });
+      }
     }
+    const list = Array.from(map.values());
+    if (deterministicSeed) {
+      list.sort((a, b) => `${a.title}--${a.creator}`.localeCompare(`${b.title}--${b.creator}`));
+    }
+    return list;
+  };
+
+  const chosenDistractors: { title: string; creator: string }[] = [];
+  const seenKeys = new Set<string>();
+
+  const pickFrom = (list: { title: string; creator: string }[]) => {
+    for (const d of seededShuffle(list, rng)) {
+      const key = `${d.title.toLowerCase()}--${d.creator.toLowerCase()}`;
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        chosenDistractors.push(d);
+        if (chosenDistractors.length >= 3) break;
+      }
+    }
+  };
+
+  // Tier 1: Live pool items with distinct work + distinct creator
+  pickFrom(collectPool(livePoolItems, false));
+
+  // Tier 2: Live pool items with distinct work (handles single-artist categories like Monet/Van Gogh)
+  if (chosenDistractors.length < 3) {
+    pickFrom(collectPool(livePoolItems, true));
+  }
+
+  // Tier 3: Offline fallback only if the live random pool yielded fewer than 3 distractors
+  if (chosenDistractors.length < 3) {
+    const staticFallbackPool = targetItem.category === 'music'
+      ? MUSIC_DISTRACTORS
+      : targetItem.category === 'books'
+      ? BOOKS_DISTRACTORS
+      : ART_DISTRACTORS;
+
+    const storedCatalog = (fallbackCatalogItems || [])
+      .filter(it => it.category === targetItem.category && it.id !== targetItem.id)
+      .map(it => ({ title: it.title, creator: it.creator, category: it.category }));
+
+    pickFrom(collectPool([...storedCatalog, ...staticFallbackPool.map(s => ({ ...s, category: targetItem.category }))], false));
   }
 
   const rawIdentifications = [

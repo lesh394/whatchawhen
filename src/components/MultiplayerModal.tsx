@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Copy, Check, Swords, Play, Trophy, Heart } from 'lucide-react';
+import { X, Copy, Check, Swords, Play, Trophy, Heart, RefreshCw, Users, BarChart3 } from 'lucide-react';
 import {
   MultiplayerChallenge,
   MultiplayerScoreSummary,
@@ -14,7 +14,11 @@ interface MultiplayerModalProps {
   challenge: MultiplayerChallenge;
   playerName: string;
   onChangePlayerName: (name: string) => void;
-  opponentResult?: MultiplayerScoreSummary;
+  opponentResults?: MultiplayerScoreSummary[];
+  isGeneratingRoom?: boolean;
+  hasSavedRunForRoom?: boolean;
+  onViewSavedRoomLeaderboard?: () => void;
+  onRerollRoom?: () => void;
   onStartChallenge: () => void;
   onDismissChallenge: () => void;
   onClose: () => void;
@@ -39,7 +43,11 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   challenge,
   playerName,
   onChangePlayerName,
-  opponentResult,
+  opponentResults = [],
+  isGeneratingRoom = false,
+  hasSavedRunForRoom = false,
+  onViewSavedRoomLeaderboard,
+  onRerollRoom,
   onStartChallenge,
   onDismissChallenge,
   onClose,
@@ -56,15 +64,22 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         : challenge.hostName,
   };
 
-  const shareUrl = buildChallengeUrl(liveChallenge);
+  const roomReady = !isGeneratingRoom;
+  const shareUrl = buildChallengeUrl(
+    liveChallenge,
+    opponentResults.length > 0 ? opponentResults : undefined
+  );
 
   const handleCopy = () => {
+    if (!roomReady) return;
     sounds.playCoin();
     copyToClipboard(shareUrl).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2200);
     });
   };
+
+  const lockedRoundCount = challenge.manifest?.length || 0;
 
   return (
     <div
@@ -91,26 +106,32 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         </button>
 
         {/* Header */}
-        <div className="flex items-center gap-2.5 mb-2">
-          <div className="w-9 h-9 rounded bg-amber-900/60 border-2 border-amber-500 flex items-center justify-center">
+        <div className="flex items-center gap-2.5 mb-2 pr-8">
+          <div className="w-9 h-9 rounded bg-amber-900/60 border-2 border-amber-500 flex items-center justify-center shrink-0">
             <Swords className="w-5 h-5 text-amber-300" />
           </div>
           <div>
             <h2 className="font-pixel-title text-sm sm:text-base text-[#ffe599]">
               {mode === 'join'
-                ? `CHALLENGE FROM ${challenge.hostName.toUpperCase()}`
-                : '2P FRIEND CHALLENGE'}
+                ? `ROOM FROM ${challenge.hostName.toUpperCase()}`
+                : 'MULTIPLAYER ROOM'}
             </h2>
-            <p className="text-[10px] font-pixel-ui text-[#d7974e]">
-              Room #{challenge.id}
-            </p>
+            <div className="flex items-center gap-2 flex-wrap text-[10px] font-pixel-ui text-[#d7974e]">
+              <span>Room #{challenge.id}</span>
+              <span className="inline-flex items-center gap-1 text-emerald-300/90">
+                <Users className="w-3 h-3" /> 2+ Players
+              </span>
+              {lockedRoundCount > 0 && !isGeneratingRoom && (
+                <span className="text-amber-300/90">• 🔒 {lockedRoundCount} Live Rounds Locked</span>
+              )}
+            </div>
           </div>
         </div>
 
         <p className="font-pixel-body text-xs text-[#eed0ae] leading-relaxed mb-4">
           {mode === 'join'
-            ? 'You get the exact same rounds, choices & hints. Play it out and see who scores higher!'
-            : 'Send this link to a friend — you both get the exact same rounds, choices & hints! In Forever mode, keep getting matching rounds until someone drops.'}
+            ? 'Everyone on this link gets the exact same live picks, covers, choices & hints. Finish your run and compare scores on the room leaderboard!'
+            : 'Share this one link with 2, 3, or a whole group of friends — everyone plays the exact same live rounds, covers, choices & hints!'}
         </p>
 
         {/* Locked Match Settings */}
@@ -145,9 +166,12 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           </div>
         </div>
 
-        {opponentResult && (
+        {opponentResults.length > 0 && (
           <div className="mb-4 px-3 py-2 bg-[#14332b] border border-emerald-500/70 rounded text-[11px] font-pixel-ui text-emerald-200 text-center">
-            🔒 {opponentResult.name} already played this seed — finish your run to reveal the head-to-head winner!
+            🏆 {opponentResults.length === 1
+              ? `${opponentResults[0].name} already finished this room`
+              : `${opponentResults.length} players already on this board (${opponentResults.slice(0, 3).map(o => o.name).join(', ')}${opponentResults.length > 3 ? '...' : ''})`}
+            {' — '}finish your run to claim your rank!
           </div>
         )}
 
@@ -161,54 +185,99 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             maxLength={20}
             value={playerName}
             onChange={e => onChangePlayerName(e.target.value)}
-            placeholder={mode === 'join' ? 'Player 2' : 'Player 1'}
+            placeholder={mode === 'join' ? `Player ${opponentResults.length + 2}` : 'Player 1'}
             className="w-full px-3 py-2 rounded bg-[#170a04] border-2 border-[#542813] text-amber-100 placeholder-[#8c603a] font-pixel-body text-xs focus:outline-none focus:border-amber-400"
           />
         </div>
 
         {/* Shareable Link Box */}
         <div className="mb-5">
-          <label className="block text-[9px] font-pixel-title text-[#ffe2a0] mb-1">
-            SHARE LINK WITH YOUR FRIEND
-          </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              readOnly
-              value={shareUrl}
-              onClick={e => e.currentTarget.select()}
-              className="flex-1 min-w-0 px-2.5 py-2 rounded bg-[#140903] border border-[#542813] text-[#d7974e] font-mono text-[10px] focus:outline-none"
-            />
-            <button
-              onClick={handleCopy}
-              className="px-3.5 py-2 bg-[#2b170c] hover:bg-[#3d2314] border-2 border-[#8a4b27] text-amber-200 hover:text-white font-pixel-title text-[9px] rounded pixel-btn cursor-pointer flex items-center gap-1.5 shrink-0"
-            >
-              {copied ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="text-emerald-300">COPIED!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5 text-amber-300" />
-                  <span>COPY LINK</span>
-                </>
-              )}
-            </button>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label className="block text-[9px] font-pixel-title text-[#ffe2a0]">
+              {mode === 'join' ? 'ROOM LINK (ADD MORE FRIENDS)' : 'SHARE LINK WITH FRIENDS'}
+            </label>
+            {mode === 'create' && onRerollRoom && (
+              <button
+                type="button"
+                disabled={isGeneratingRoom}
+                onClick={() => {
+                  sounds.playClick();
+                  setCopied(false);
+                  onRerollRoom();
+                }}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#2b170c] hover:bg-[#3d2314] border border-[#8a4b27] text-amber-300 hover:text-white font-pixel-title text-[8px] pixel-btn cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-2.5 h-2.5 ${isGeneratingRoom ? 'animate-spin' : ''}`} />
+                <span>NEW RANDOM SET</span>
+              </button>
+            )}
           </div>
+
+          {isGeneratingRoom ? (
+            <div className="px-3 py-2.5 rounded bg-[#140903] border border-[#8a4b27] text-amber-300 font-pixel-ui text-[11px] flex items-center gap-2">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+              <span>Pulling fresh random Wikipedia picks &amp; locking covers...</span>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                readOnly
+                value={shareUrl}
+                onClick={e => e.currentTarget.select()}
+                className="flex-1 min-w-0 px-2.5 py-2 rounded bg-[#140903] border border-[#542813] text-[#d7974e] font-mono text-[10px] focus:outline-none"
+              />
+              <button
+                onClick={handleCopy}
+                className="px-3.5 py-2 bg-[#2b170c] hover:bg-[#3d2314] border-2 border-[#8a4b27] text-amber-200 hover:text-white font-pixel-title text-[9px] rounded pixel-btn cursor-pointer flex items-center gap-1.5 shrink-0"
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-emerald-300">COPIED!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 text-amber-300" />
+                    <span>COPY LINK</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Actions */}
         <div className="flex flex-col sm:flex-row gap-2.5">
+          {mode === 'join' && hasSavedRunForRoom && onViewSavedRoomLeaderboard && (
+            <button
+              onClick={() => {
+                sounds.playCoin();
+                onViewSavedRoomLeaderboard();
+              }}
+              className="flex-1 py-3 rounded bg-[#824419] hover:bg-[#9b5220] border-2 border-[#e6a86c] font-pixel-title text-[10px] sm:text-xs text-[#ffe599] hover:text-white pixel-btn shadow-lg cursor-pointer flex items-center justify-center gap-2"
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span>VIEW LEADERBOARD</span>
+            </button>
+          )}
+
           <button
+            disabled={isGeneratingRoom}
             onClick={() => {
               sounds.playCoin();
               onStartChallenge();
             }}
-            className="flex-1 py-3 rounded bg-[#5c993d] hover:bg-[#6ab346] border-2 border-[#2b4c1a] font-pixel-title text-xs text-white pixel-btn shadow-lg cursor-pointer flex items-center justify-center gap-2"
+            className="flex-1 py-3 rounded bg-[#5c993d] hover:bg-[#6ab346] border-2 border-[#2b4c1a] font-pixel-title text-xs text-white pixel-btn shadow-lg cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
           >
             <Play className="w-4 h-4 fill-current" />
-            <span>{mode === 'join' ? 'PLAY SAME QUESTIONS' : 'START MATCH'}</span>
+            <span>
+              {mode === 'join'
+                ? hasSavedRunForRoom
+                  ? 'REPLAY ROOM'
+                  : 'PLAY SAME QUESTIONS'
+                : 'START MATCH'}
+            </span>
           </button>
 
           {mode === 'join' && (

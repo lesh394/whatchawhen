@@ -420,7 +420,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           className="w-full sm:w-auto px-6 py-4 bg-[#7b3d17] hover:bg-[#934a1d] border-4 border-[#431e08] font-pixel-title text-xs sm:text-sm text-[#ffe599] hover:text-white rounded pixel-btn shadow-xl cursor-pointer flex items-center justify-center gap-2"
         >
           <Swords className="w-4 h-4 text-amber-300" />
-          <span>2P CHALLENGE</span>
+          <span>MULTIPLAYER</span>
         </button>
 
         <button

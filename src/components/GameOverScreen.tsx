@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { RoundResult, Category, GameMode, Difficulty } from '../types';
 import { CATEGORY_THEMES } from '../config/themes';
-import { Trophy, Share2, RotateCcw, Check, Skull, Home, Swords, Copy, Link2 } from 'lucide-react';
+import { Trophy, Share2, RotateCcw, Check, Skull, Home, Swords, Copy, Link2, Users } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { sounds } from '../services/sound';
 import {
@@ -9,12 +9,18 @@ import {
   MultiplayerScoreSummary,
   buildChallengeUrl,
   copyToClipboard,
-  encodeResultToken,
-  decodeResultToken,
+  encodeLeaderboardToken,
+  decodeScoreInput,
   publishChallengeScore,
   loadStoredChallengeScores,
+  saveChallengeScoresToStorage,
   subscribeChallengeChannel,
-  compareChallengeResults,
+  mergeChallengeScores,
+  sortChallengeLeaderboard,
+  evaluateRoomStanding,
+  getOrCreateClientPlayerId,
+  isSameScoreIdentity,
+  saveRoomRunSnapshot,
 } from '../services/multiplayer';
 
 interface GameOverScreenProps {
@@ -27,6 +33,7 @@ interface GameOverScreenProps {
   onGoHome: () => void;
   challenge?: MultiplayerChallenge | null;
   playerName?: string;
+  initialOpponentResults?: MultiplayerScoreSummary[];
   initialOpponentResult?: MultiplayerScoreSummary;
 }
 
@@ -40,24 +47,18 @@ export const GameOverScreen: React.FC<GameOverScreenProps> = ({
   onGoHome,
   challenge,
   playerName,
+  initialOpponentResults,
   initialOpponentResult,
 }) => {
   const theme = CATEGORY_THEMES[category];
   const [copied, setCopied] = useState(false);
   const [finishedAt] = useState<number>(() => Date.now());
+  const [clientPlayerId] = useState<string>(() => getOrCreateClientPlayerId());
   const [copiedResultLink, setCopiedResultLink] = useState(false);
   const [copiedScoreCode, setCopiedScoreCode] = useState(false);
   const [pasteInput, setPasteInput] = useState('');
-  const [pasteError, setPasteError] = useState<string | null>(null);
+  const [pasteNotice, setPasteNotice] = useState<{ type: 'error' | 'ok'; text: string } | null>(null);
   const cleanPlayerName = (playerName || challenge?.hostName || 'Player').trim().slice(0, 20) || 'Player';
-  const [opponentSummary, setOpponentSummary] = useState<MultiplayerScoreSummary | undefined>(() => {
-    if (initialOpponentResult) return initialOpponentResult;
-    if (!challenge) return undefined;
-    const existing = loadStoredChallengeScores(challenge.id).filter(
-      s => !(s.name === cleanPlayerName && s.finishedAt === finishedAt)
-    );
-    return existing.length > 0 ? existing[existing.length - 1] : undefined;
-  });
 
   const totalScore = results.reduce((sum, r) => sum + r.totalPoints, 0);
   const isForever = gameMode === 'forever';
@@ -75,37 +76,71 @@ export const GameOverScreen: React.FC<GameOverScreenProps> = ({
       gameMode,
       roundScores: results.map(r => r.totalPoints),
       finishedAt,
+      playerId: clientPlayerId,
     };
-  }, [challenge, cleanPlayerName, totalScore, results, isFainted, gameMode, finishedAt]);
+  }, [challenge, cleanPlayerName, totalScore, results, isFainted, gameMode, finishedAt, clientPlayerId]);
 
-  // Publish score & listen for same-browser opponent updates
+  const [roomOpponents, setRoomOpponents] = useState<MultiplayerScoreSummary[]>(() => {
+    if (!challenge) return [];
+    const fromProps =
+      initialOpponentResults && initialOpponentResults.length > 0
+        ? initialOpponentResults
+        : initialOpponentResult
+        ? [initialOpponentResult]
+        : [];
+    const fromStorage = loadStoredChallengeScores(challenge.id);
+    return mergeChallengeScores(challenge.id, fromStorage, fromProps);
+  });
+
+  // Persist URL-imported scores + own summary and subscribe to same-browser tabs
   useEffect(() => {
     if (!challenge || !mySummary) return;
 
+    saveRoomRunSnapshot({
+      challengeId: challenge.id,
+      playerName: cleanPlayerName,
+      finalHp,
+      results,
+      savedAt: finishedAt,
+    });
+
+    if (roomOpponents.length > 0) {
+      saveChallengeScoresToStorage(challenge.id, roomOpponents);
+    }
     publishChallengeScore(challenge.id, mySummary);
 
     const unsubscribe = subscribeChallengeChannel(challenge.id, incoming => {
-      if (incoming.name === mySummary.name && incoming.finishedAt === mySummary.finishedAt) return;
-      setOpponentSummary(incoming);
+      if (isSameScoreIdentity(incoming, mySummary)) return;
+      setRoomOpponents(prev => mergeChallengeScores(challenge.id, prev, [incoming]));
     });
 
     return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [challenge, mySummary]);
 
-  const headToHead = useMemo(() => {
-    if (!mySummary || !opponentSummary) return null;
-    return compareChallengeResults(mySummary, opponentSummary);
-  }, [mySummary, opponentSummary]);
+  const leaderboard = useMemo(() => {
+    if (!challenge || !mySummary) return [];
+    const merged = mergeChallengeScores(challenge.id, roomOpponents, [mySummary]);
+    return sortChallengeLeaderboard(merged, gameMode);
+  }, [challenge, mySummary, roomOpponents, gameMode]);
+
+  const roomStanding = useMemo(() => {
+    if (!mySummary || leaderboard.length === 0) return null;
+    return evaluateRoomStanding(mySummary, leaderboard);
+  }, [mySummary, leaderboard]);
 
   const resultShareUrl = useMemo(() => {
     if (!challenge || !mySummary) return '';
-    return buildChallengeUrl(challenge, mySummary);
-  }, [challenge, mySummary]);
+    return buildChallengeUrl(challenge, leaderboard.length > 0 ? leaderboard : [mySummary]);
+  }, [challenge, mySummary, leaderboard]);
 
   const scoreCode = useMemo(() => {
-    if (!mySummary) return '';
-    return encodeResultToken(mySummary);
-  }, [mySummary]);
+    if (!challenge || !mySummary) return '';
+    return encodeLeaderboardToken(
+      challenge.id,
+      leaderboard.length > 0 ? leaderboard : [mySummary]
+    );
+  }, [challenge, mySummary, leaderboard]);
 
   const handleCopyResultLink = () => {
     if (!resultShareUrl) return;
@@ -127,19 +162,40 @@ export const GameOverScreen: React.FC<GameOverScreenProps> = ({
 
   const handleComparePaste = (e: React.FormEvent) => {
     e.preventDefault();
-    setPasteError(null);
-    const decoded = decodeResultToken(pasteInput);
-    if (!decoded) {
-      setPasteError('Could not read that link or code — double-check you copied the whole thing.');
+    setPasteNotice(null);
+    const decodedList = decodeScoreInput(pasteInput);
+    if (decodedList.length === 0) {
+      setPasteNotice({
+        type: 'error',
+        text: 'Could not read that link or code — make sure you copied the whole thing.',
+      });
       return;
     }
-    if (challenge && decoded.challengeId && decoded.challengeId !== challenge.id) {
-      setPasteError(`That score is for Room #${decoded.challengeId}, not #${challenge.id}.`);
+
+    const matching = challenge
+      ? decodedList.filter(d => !d.challengeId || d.challengeId === challenge.id)
+      : decodedList;
+
+    if (matching.length === 0) {
+      const foreignId = decodedList[0]?.challengeId;
+      setPasteNotice({
+        type: 'error',
+        text: `That score is for Room #${foreignId}, not #${challenge?.id}.`,
+      });
       return;
     }
+
     sounds.playSuccess();
-    setOpponentSummary(decoded);
+    setRoomOpponents(prev => {
+      const next = mergeChallengeScores(challenge?.id || '', prev, matching);
+      if (challenge) saveChallengeScoresToStorage(challenge.id, next);
+      return next;
+    });
     setPasteInput('');
+    setPasteNotice({
+      type: 'ok',
+      text: `Added ${matching.map(m => m.name).join(', ')} to the room leaderboard!`,
+    });
   };
 
   useEffect(() => {
@@ -163,23 +219,32 @@ export const GameOverScreen: React.FC<GameOverScreenProps> = ({
     });
 
     const roomTag = challenge ? ` [Room #${challenge.id}]` : '';
-    const vsLine = headToHead && opponentSummary
-      ? `\n⚔️ vs ${opponentSummary.name}: ${opponentSummary.score.toLocaleString()} pts — ${headToHead.headline}`
-      : '';
+    const standLine =
+      challenge && leaderboard.length >= 2
+        ? `\n🏆 Leaderboard (${leaderboard.length} players):\n` +
+          leaderboard
+            .map((p, idx) => `#${idx + 1} ${p.name}: ${p.score.toLocaleString()} pts${isForever ? ` (${p.survived} rnds)` : ''}`)
+            .join('\n')
+        : '';
     const challengeFooter = resultShareUrl
-      ? `\nChallenge link: ${resultShareUrl}`
+      ? `\nRoom link: ${resultShareUrl}`
       : '\nBeat my WhatchaWhen score?';
 
     const shareText = `🕰️ WhatchaWhen (${theme.name} - ${difficulty.toUpperCase()})${roomTag}
 ${isForever ? `❤️ Survived: ${results.length} Rounds` : '🏆 Match Complete (50,000 max)'}
 🪙 Total Score: ${totalScore.toLocaleString()} pts
-${rows.join('\n')}${vsLine}${challengeFooter}`;
+${rows.join('\n')}${standLine}${challengeFooter}`;
 
     copyToClipboard(shareText).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     });
   };
+
+  const maxRoundsInRoom = Math.max(
+    results.length,
+    ...leaderboard.map(p => p.roundScores.length)
+  );
 
   return (
     <div className="w-full flex-1 max-w-4xl mx-auto px-4 py-8 flex flex-col items-center animate-fadeIn select-none relative z-10">
@@ -251,7 +316,7 @@ ${rows.join('\n')}${vsLine}${challengeFooter}`;
             className="px-8 py-2.5 bg-[#5c993d] hover:bg-[#6ab346] border-2 border-[#2b4c1a] text-white font-pixel-title text-xs rounded-sm pixel-btn cursor-pointer flex items-center gap-2 shadow-xl"
           >
             <RotateCcw className="w-4 h-4" />
-            <span>{challenge ? 'REPLAY SEED' : 'PLAY AGAIN'}</span>
+            <span>{challenge ? 'REPLAY ROOM' : 'PLAY AGAIN'}</span>
           </button>
 
           <button
@@ -268,130 +333,144 @@ ${rows.join('\n')}${vsLine}${challengeFooter}`;
 
       </div>
 
-      {/* 2P Challenge Comparison Panel */}
+      {/* Multi-Player Room Leaderboard Panel */}
       {challenge && mySummary && (
         <div className="w-full pixel-wood-frame rounded p-5 sm:p-6 shadow-2xl mb-6 border-2 border-[#b4692c]">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2">
               <Swords className="w-5 h-5 text-amber-300" />
               <h2 className="font-pixel-title text-sm text-[#ffe599]">
-                2P CHALLENGE RESULTS • #{challenge.id}
+                MULTIPLAYER LEADERBOARD • #{challenge.id}
               </h2>
             </div>
-            <span className="text-[10px] font-pixel-ui text-[#d7974e]">
-              Same Questions • Same Choices • Same Hints
+            <span className="text-[10px] font-pixel-ui text-[#d7974e] inline-flex items-center gap-1">
+              <Users className="w-3.5 h-3.5 text-emerald-300" />
+              {leaderboard.length} {leaderboard.length === 1 ? 'Player' : 'Players'} Ranked
             </span>
           </div>
 
-          {headToHead && opponentSummary ? (
+          {roomStanding && roomStanding.outcome !== 'solo' ? (
             <>
               {/* Outcome Banner */}
               <div
                 className={`rounded p-3.5 mb-4 border-2 text-center ${
-                  headToHead.outcome === 'win'
+                  roomStanding.outcome === 'win'
                     ? 'bg-[#123d22] border-emerald-500 text-emerald-100'
-                    : headToHead.outcome === 'loss'
+                    : roomStanding.outcome === 'loss'
                     ? 'bg-[#451518] border-rose-500 text-rose-100'
                     : 'bg-[#3d2b0d] border-amber-400 text-amber-100'
                 }`}
               >
                 <div className="font-pixel-title text-sm sm:text-base mb-1">
-                  {headToHead.headline}
+                  {roomStanding.headline}
                 </div>
                 <div className="font-pixel-body text-xs opacity-90">
-                  {headToHead.subtext}
+                  {roomStanding.subtext}
                 </div>
               </div>
 
-              {/* Side-by-Side Totals */}
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="bg-[#1b0d06] border-2 border-[#804a23] rounded p-3 text-center">
-                  <div className="text-[9px] font-pixel-ui text-amber-300 uppercase">
-                    You ({mySummary.name})
-                  </div>
-                  <div className="font-pixel-title text-lg sm:text-xl text-[#fcd34d] mt-1">
-                    🪙 {mySummary.score.toLocaleString()}
-                  </div>
-                  <div className="text-[10px] font-pixel-ui text-[#eed0ae] mt-0.5">
-                    {isForever
-                      ? `Survived ${mySummary.survived} Rnds`
-                      : `${mySummary.roundsCompleted} / 5 Rounds`}
-                  </div>
-                </div>
-
-                <div className="bg-[#1b0d06] border-2 border-[#804a23] rounded p-3 text-center">
-                  <div className="text-[9px] font-pixel-ui text-sky-300 uppercase">
-                    Friend ({opponentSummary.name})
-                  </div>
-                  <div className="font-pixel-title text-lg sm:text-xl text-sky-200 mt-1">
-                    🪙 {opponentSummary.score.toLocaleString()}
-                  </div>
-                  <div className="text-[10px] font-pixel-ui text-[#eed0ae] mt-0.5">
-                    {isForever
-                      ? `Survived ${opponentSummary.survived} Rnds`
-                      : `${opponentSummary.roundsCompleted} / 5 Rounds`}
-                  </div>
-                </div>
-              </div>
-
-              {/* Round-by-Round Comparison */}
-              <div className="bg-[#170a04] border border-[#542813] rounded p-3 mb-4">
-                <div className="text-[9px] font-pixel-title text-[#ffe2a0] mb-2">
-                  ROUND-BY-ROUND BREAKDOWN
-                </div>
-                <div className="space-y-1.5 text-[11px] font-pixel-ui">
-                  {Array.from({
-                    length: Math.max(
-                      mySummary.roundScores.length,
-                      opponentSummary.roundScores.length
-                    ),
-                  }).map((_, idx) => {
-                    const mine = mySummary.roundScores[idx];
-                    const theirs = opponentSummary.roundScores[idx];
-                    const workTitle = results[idx]?.item.title;
-                    return (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between gap-2 px-2 py-1 bg-[#241108] rounded border border-[#3d2012]"
-                      >
-                        <div className="truncate text-[#eed0ae]">
-                          <span className="text-amber-300 font-bold mr-1.5">R{idx + 1}</span>
-                          {workTitle && <span className="opacity-80">{workTitle}</span>}
-                        </div>
-                        <div className="flex items-center gap-3 shrink-0 font-mono text-[10px]">
-                          <span
-                            className={
-                              mine !== undefined && theirs !== undefined && mine > theirs
-                                ? 'text-emerald-300 font-bold'
-                                : 'text-amber-200'
-                            }
-                          >
-                            {mine !== undefined ? `+${mine.toLocaleString()}` : '💀 --'}
-                          </span>
-                          <span className="text-[#8c603a]">vs</span>
-                          <span
-                            className={
-                              theirs !== undefined && mine !== undefined && theirs > mine
-                                ? 'text-sky-300 font-bold'
-                                : 'text-stone-300'
-                            }
-                          >
-                            {theirs !== undefined ? `+${theirs.toLocaleString()}` : '💀 --'}
-                          </span>
+              {/* Ranked Standings List (supports 2, 3, 4, 10+ players) */}
+              <div className="space-y-2 mb-4">
+                {leaderboard.map((entry, idx) => {
+                  const isMe = isSameScoreIdentity(entry, mySummary);
+                  const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+                  return (
+                    <div
+                      key={`${entry.playerId || entry.name}-${entry.finishedAt}-${idx}`}
+                      className={`flex items-center justify-between gap-3 px-3.5 py-2.5 rounded border-2 ${
+                        isMe
+                          ? 'bg-[#2a1a09] border-[#fcd34d] shadow'
+                          : 'bg-[#1b0d06] border-[#542813]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="font-pixel-title text-sm w-7 text-center shrink-0 text-amber-300">
+                          {medal}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-pixel-title text-xs text-[#ffe599] truncate">
+                              {entry.name}
+                            </span>
+                            {isMe && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-900/80 border border-emerald-500 text-[8px] font-pixel-title text-emerald-200">
+                                YOU
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] font-pixel-ui text-[#b88c60]">
+                            {isForever
+                              ? `Survived ${entry.survived} Rnds`
+                              : `${entry.roundsCompleted} / 5 Rounds`}
+                          </div>
                         </div>
                       </div>
-                    );
-                  })}
+
+                      <div className="text-right shrink-0">
+                        <div className="font-pixel-title text-sm sm:text-base text-[#fcd34d]">
+                          🪙 {entry.score.toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Multi-Player Round-by-Round Table */}
+              <div className="bg-[#170a04] border border-[#542813] rounded p-3 mb-4 overflow-x-auto">
+                <div className="text-[9px] font-pixel-title text-[#ffe2a0] mb-2">
+                  ROUND-BY-ROUND COMPARISON
                 </div>
+                <table className="w-full text-[11px] font-pixel-ui border-collapse">
+                  <thead>
+                    <tr className="border-b border-[#3d2012] text-[#b88c60]">
+                      <th className="text-left py-1 pr-3 font-normal">Round</th>
+                      {leaderboard.map((p, idx) => (
+                        <th key={idx} className="text-right py-1 px-2 font-pixel-title text-[9px] text-amber-200 truncate max-w-[90px]">
+                          {isSameScoreIdentity(p, mySummary) ? `${p.name} (You)` : p.name}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: maxRoundsInRoom }).map((_, rIdx) => {
+                      const workTitle = results[rIdx]?.item.title;
+                      const roundVals = leaderboard.map(p => p.roundScores[rIdx] ?? -1);
+                      const topRound = Math.max(...roundVals);
+                      return (
+                        <tr key={rIdx} className="border-b border-[#2b150a] last:border-b-0">
+                          <td className="py-1.5 pr-3 text-[#eed0ae] truncate max-w-[180px]">
+                            <span className="text-amber-300 font-bold mr-1.5">R{rIdx + 1}</span>
+                            {workTitle && <span className="opacity-80">{workTitle}</span>}
+                          </td>
+                          {leaderboard.map((p, pIdx) => {
+                            const val = p.roundScores[rIdx];
+                            const isBest = val !== undefined && val > 0 && val === topRound;
+                            return (
+                              <td
+                                key={pIdx}
+                                className={`py-1.5 px-2 text-right font-mono text-[10px] ${
+                                  isBest ? 'text-emerald-300 font-bold' : 'text-stone-300'
+                                }`}
+                              >
+                                {val !== undefined ? `+${val.toLocaleString()}` : '💀 --'}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </>
           ) : (
             <div className="bg-[#1b0d06] border border-[#542813] rounded p-3 mb-4 text-center text-xs font-pixel-body text-[#eed0ae]">
-              Waiting on your friend&apos;s run — send them your Result Link or paste theirs below!
+              Waiting on friends&apos; runs — send them your Result Link (carries the whole leaderboard!) or paste theirs below!
             </div>
           )}
 
-          {/* Share & Compare Controls */}
+          {/* Share & Merge Controls */}
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <button
               type="button"
@@ -406,7 +485,9 @@ ${rows.join('\n')}${vsLine}${challengeFooter}`;
               ) : (
                 <>
                   <Link2 className="w-3.5 h-3.5 text-amber-300" />
-                  <span>COPY RESULT LINK</span>
+                  <span>
+                    {leaderboard.length >= 2 ? 'COPY GROUP RESULT LINK' : 'COPY RESULT LINK'}
+                  </span>
                 </>
               )}
             </button>
@@ -435,20 +516,24 @@ ${rows.join('\n')}${vsLine}${challengeFooter}`;
               type="text"
               value={pasteInput}
               onChange={e => setPasteInput(e.target.value)}
-              placeholder="Paste friend's Result Link or WW1:... Score Code"
+              placeholder="Paste any friend's Result Link or WW1:/WW2: Score Code"
               className="flex-1 min-w-0 px-3 py-2 rounded bg-[#140903] border-2 border-[#542813] text-amber-100 placeholder-[#8c603a] font-pixel-body text-xs focus:outline-none focus:border-amber-400"
             />
             <button
               type="submit"
               className="px-4 py-2 bg-[#5c993d] hover:bg-[#6ab346] border-2 border-[#2b4c1a] text-white font-pixel-title text-[9px] rounded pixel-btn cursor-pointer shrink-0"
             >
-              COMPARE SCORE
+              ADD SCORE
             </button>
           </form>
 
-          {pasteError && (
-            <div className="mt-2 text-[10px] font-pixel-ui text-rose-300">
-              {pasteError}
+          {pasteNotice && (
+            <div
+              className={`mt-2 text-[10px] font-pixel-ui ${
+                pasteNotice.type === 'error' ? 'text-rose-300' : 'text-emerald-300'
+              }`}
+            >
+              {pasteNotice.text}
             </div>
           )}
         </div>

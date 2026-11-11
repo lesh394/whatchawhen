@@ -14,7 +14,11 @@ import {
   hasEnoughQueryForSuggestions,
   AutocompleteOption,
 } from '../services/wikipedia';
-import { generateEasyOptions, generateQuirkyHint } from '../services/choices';
+import {
+  generateEasyOptions,
+  generateQuirkyHint,
+  EasyDistractorSource,
+} from '../services/choices';
 import { ImageZoomModal } from './ImageZoomModal';
 import { BookCoverMask } from './BookCoverMask';
 import { PixelCover } from './PixelCover';
@@ -28,6 +32,8 @@ interface GamePlayRoundProps {
   onUseHint: () => void;
   onSubmitGuess: (guess: RoundGuess) => void;
   allItems: CulturalItem[];
+  easyLivePool?: EasyDistractorSource[];
+  fallbackCatalogItems?: CulturalItem[];
   challenge?: MultiplayerChallenge | null;
   roundIndex?: number;
 }
@@ -40,6 +46,8 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
   onUseHint,
   onSubmitGuess,
   allItems,
+  easyLivePool,
+  fallbackCatalogItems,
   challenge,
   roundIndex,
 }) => {
@@ -54,8 +62,15 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
       challenge && typeof roundIndex === 'number'
         ? `${challenge.id}:easy:${roundIndex}`
         : undefined;
-    return generateEasyOptions(item, allItems, easySeed);
-  }, [item, difficulty, allItems, challenge, roundIndex]);
+    const primaryPool: EasyDistractorSource[] = challenge
+      ? [
+          ...(challenge.distractors || []),
+          ...(challenge.manifest || []),
+          ...(easyLivePool || []),
+        ]
+      : easyLivePool || [];
+    return generateEasyOptions(item, primaryPool, easySeed, fallbackCatalogItems || []);
+  }, [item, difficulty, easyLivePool, fallbackCatalogItems, challenge, roundIndex]);
 
   const initialYear = difficulty === 'easy' && easyOptions ? easyOptions.years[0] : defaultYear;
 
@@ -247,7 +262,7 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
                   setTimeout(() => setCopiedChallengeLink(false), 2000);
                 });
               }}
-              title="Copy 2P Challenge Link"
+              title="Copy Multiplayer Room Link"
               className="flex items-center gap-1 px-2 py-1 bg-[#431f0a] hover:bg-[#5c2c0e] border border-[#b4692c] rounded text-[#fcd34d] font-pixel-title text-[8px] pixel-btn cursor-pointer"
             >
               <Swords className="w-3 h-3 text-amber-300" />
