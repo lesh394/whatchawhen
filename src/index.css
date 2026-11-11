@@ -7,12 +7,21 @@
     --font-pixel-body: 'Silkscreen', 'Plus Jakarta Sans', monospace;
   }
 
+  html,
   body {
     font-family: var(--font-pixel-body);
-    image-rendering: pixelated;
     background-color: #160e0a;
     color: #ffebc4;
     overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button,
+  [role="button"],
+  a,
+  input,
+  select {
+    touch-action: manipulation;
   }
 }
 
@@ -67,18 +76,65 @@
 .pixel-btn {
   border: 3px solid #1f0b03;
   box-shadow: 0 4px 0 #1f0b03;
-  image-rendering: pixelated;
   transition: transform 0.06s ease, box-shadow 0.06s ease;
   user-select: none;
+  touch-action: manipulation;
 }
 
-.pixel-btn:hover {
-  filter: brightness(1.1);
+@media (hover: hover) {
+  .pixel-btn:hover {
+    filter: brightness(1.1);
+  }
 }
 
 .pixel-btn:active {
   transform: translateY(3px);
   box-shadow: 0 1px 0 #1f0b03;
+}
+
+/* Chunky Retro Range Slider for Touch & Mouse Precision */
+.pixel-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 12px;
+  border-radius: 4px;
+  background: #170a04;
+  border: 2px solid #542813;
+  touch-action: pan-y;
+}
+
+.pixel-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  background: #fcd34d;
+  border: 3px solid #261106;
+  box-shadow: 0 2px 0 #1f0b03;
+  cursor: pointer;
+}
+
+.pixel-slider::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  background: #fcd34d;
+  border: 3px solid #261106;
+  box-shadow: 0 2px 0 #1f0b03;
+  cursor: pointer;
+}
+
+/* Desktop Hover-Only Tooltips (prevents sticky popovers on touchscreens) */
+.hover-tooltip {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .group:hover > .hover-tooltip,
+  .group:focus-within > .hover-tooltip {
+    display: block;
+  }
 }
 
 .pixel-btn-danger {
@@ -140,23 +196,37 @@
 
 @keyframes float-drift {
   0% {
-    transform: translateY(105vh) translateX(0px) rotate(0deg);
+    transform: translate3d(0px, 105dvh, 0px) rotate(0deg);
     opacity: 0;
   }
   10% {
-    opacity: 0.8;
+    opacity: 0.75;
   }
   90% {
-    opacity: 0.8;
+    opacity: 0.75;
   }
   100% {
-    transform: translateY(-10vh) translateX(30px) rotate(360deg);
+    transform: translate3d(28px, -12dvh, 0px) rotate(360deg);
     opacity: 0;
   }
 }
 
 .animate-drift {
   animation: float-drift 14s linear infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.18s ease-out;
 }
 
 /* Pixel Heart Pulse */
@@ -197,4 +267,16 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #995b30;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-gentle,
+  .animate-float-sway,
+  .animate-float-bob-alt,
+  .animate-drift,
+  .animate-heart-beat,
+  .animate-shake,
+  .animate-fadeIn {
+    animation: none !important;
+  }
 }

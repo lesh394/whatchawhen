@@ -173,15 +173,15 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
     };
   }, [queryCanSuggest, suggestionSegment]);
 
-  // Close dropdown on click outside
+  // Close dropdown on click or tap outside
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
+    const handlePointerOutside = (e: PointerEvent) => {
       if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
         setIsDropdownOpen(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('pointerdown', handlePointerOutside);
+    return () => document.removeEventListener('pointerdown', handlePointerOutside);
   }, []);
 
   const adjustYear = (delta: number) => {
@@ -249,6 +249,10 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
   };
 
   const quirkyHints = generateQuirkyHint(item);
+  const selectedEasyOption =
+    difficulty === 'easy' && easyOptions
+      ? easyOptions.identifications.find(o => o.label === selectedEasyId) || null
+      : null;
 
   const handleSubmit = () => {
     if (isSubmitting) return;
@@ -288,20 +292,20 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
   };
 
   return (
-    <div className="w-full flex-1 max-w-4xl mx-auto px-4 py-4 flex flex-col items-center relative z-10 select-none">
+    <div className="w-full flex-1 max-w-4xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex flex-col items-center relative z-10 select-none">
       
       {/* Clean Round, Category Badge & Hint Action */}
-      <div className="w-full flex items-center justify-between gap-2 mb-3 text-xs">
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="w-full flex flex-wrap items-center justify-between gap-2 mb-3 text-xs">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
           {typeof roundIndex === 'number' && (
-            <span className="px-2.5 py-1 bg-[#3a1b0b] border-2 border-[#fcd34d]/75 rounded text-[#fcd34d] font-pixel-title text-[9px] shadow">
+            <span className="px-2 sm:px-2.5 py-1 bg-[#3a1b0b] border-2 border-[#fcd34d]/75 rounded text-[#fcd34d] font-pixel-title text-[9px] shadow whitespace-nowrap">
               {gameMode === 'forever'
                 ? `ROUND ${roundIndex + 1}`
                 : `ROUND ${roundIndex + 1}/5`}
             </span>
           )}
 
-          <span className="px-2.5 py-1 bg-[#2b1408] border-2 border-[#804a23] rounded text-[#ffe2a0] font-pixel-title text-[9px]">
+          <span className="px-2 sm:px-2.5 py-1 bg-[#2b1408] border-2 border-[#804a23] rounded text-[#ffe2a0] font-pixel-title text-[9px] whitespace-nowrap">
             {gameCategory === 'everything'
               ? `🎲 EVERYTHING • ${item.category.toUpperCase()}`
               : item.category.toUpperCase()}
@@ -318,7 +322,7 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
                 });
               }}
               title="Copy Multiplayer Room Link"
-              className="flex items-center gap-1 px-2 py-1 bg-[#431f0a] hover:bg-[#5c2c0e] border border-[#b4692c] rounded text-[#fcd34d] font-pixel-title text-[8px] pixel-btn cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1.5 sm:py-1 bg-[#431f0a] hover:bg-[#5c2c0e] border border-[#b4692c] rounded text-[#fcd34d] font-pixel-title text-[8px] pixel-btn cursor-pointer whitespace-nowrap"
             >
               <Swords className="w-3 h-3 text-amber-300" />
               <span>#{challenge.id}</span>
@@ -337,22 +341,22 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
 
         {/* Hints Button */}
         {difficulty === 'hard' ? (
-          <span className="text-[9px] font-pixel-ui text-rose-400 bg-rose-950/80 px-2 py-1 border border-rose-700 rounded">
+          <span className="text-[9px] font-pixel-ui text-rose-400 bg-rose-950/80 px-2 py-1 border border-rose-700 rounded whitespace-nowrap">
             ⚔️ No Hints
           </span>
         ) : difficulty === 'easy' ? (
-          <span className="text-[9px] font-pixel-ui text-emerald-300 bg-emerald-950/80 px-2 py-1 border border-emerald-700 rounded">
+          <span className="text-[9px] font-pixel-ui text-emerald-300 bg-emerald-950/80 px-2 py-1 border border-emerald-700 rounded whitespace-nowrap">
             🌱 4 Options Mode
           </span>
         ) : hasUsedHintInRound ? (
-          <span className="flex items-center gap-1 text-[9px] font-pixel-ui text-stone-400 bg-[#241107] px-2 py-1 border border-[#522b13] rounded">
+          <span className="flex items-center gap-1 text-[9px] font-pixel-ui text-stone-400 bg-[#241107] px-2 py-1 border border-[#522b13] rounded whitespace-nowrap">
             <Lock className="w-3 h-3 text-amber-500" />
             <span>Hint Used (Max 1)</span>
           </span>
         ) : hintTokens > 0 ? (
           <button
             onClick={handleUseFreeHint}
-            className="flex items-center gap-1 px-2.5 py-1 bg-amber-700 hover:bg-amber-600 border border-amber-950 text-white font-pixel-title text-[9px] rounded pixel-btn cursor-pointer"
+            className="flex items-center gap-1 px-2.5 py-1.5 sm:py-1 bg-amber-700 hover:bg-amber-600 border border-amber-950 text-white font-pixel-title text-[9px] rounded pixel-btn cursor-pointer whitespace-nowrap"
           >
             <HelpCircle className="w-3 h-3 text-amber-200" />
             <span>FREE HINT (1 Left)</span>
@@ -360,7 +364,7 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
         ) : (
           <button
             onClick={handleOpenAdForHint}
-            className="flex items-center gap-1 px-2.5 py-1 bg-purple-700 hover:bg-purple-600 border border-purple-950 text-white font-pixel-title text-[9px] rounded pixel-btn cursor-pointer"
+            className="flex items-center gap-1 px-2.5 py-1.5 sm:py-1 bg-purple-700 hover:bg-purple-600 border border-purple-950 text-white font-pixel-title text-[9px] rounded pixel-btn cursor-pointer whitespace-nowrap"
           >
             <Tv className="w-3 h-3 text-purple-200 animate-pulse" />
             <span>WATCH AD FOR HINT</span>
@@ -376,12 +380,12 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
         </div>
       )}
 
-      {/* Main Grid: Clean, Centered & Less Overwhelming */}
-      <div className="w-full grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
+      {/* Main Grid: Clean, Centered & Responsive on Phones + Tablets */}
+      <div className="w-full grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-5 items-center">
         
         {/* ================= ARTIFACT IMAGE ================= */}
         <div className="md:col-span-5 flex flex-col items-center">
-          <div className="relative w-full max-w-[280px] sm:max-w-[300px] flex items-center justify-center">
+          <div className="relative w-full max-w-[215px] min-[400px]:max-w-[245px] sm:max-w-[280px] md:max-w-[300px] flex items-center justify-center">
             
             {/* MUSIC (Pixelated Cover, NOT clickable!) */}
             {item.category === 'music' && (
@@ -418,6 +422,7 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
                 <img
                   src={item.image}
                   alt="Art Painting"
+                  decoding="async"
                   className="w-full h-full object-contain rounded shadow"
                 />
               </div>
@@ -429,19 +434,19 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
           {item.category === 'art' && (
             <button
               onClick={() => setIsZoomOpen(true)}
-              className="mt-1.5 text-[9px] font-pixel-ui text-amber-300/80 hover:text-white flex items-center gap-1 cursor-pointer"
+              className="mt-1.5 py-1 px-2 text-[9px] font-pixel-ui text-amber-300/85 hover:text-white flex items-center gap-1 cursor-pointer"
             >
               <ZoomIn className="w-3 h-3" />
-              <span>Click to zoom</span>
+              <span>Tap or click to zoom</span>
             </button>
           )}
         </div>
 
         {/* ================= GUESS CONTROLS ================= */}
-        <div className="md:col-span-7 flex flex-col gap-3.5">
+        <div className="md:col-span-7 flex flex-col gap-3 sm:gap-3.5 min-w-0">
 
           {/* 1. YEAR GUESS */}
-          <div className="pixel-wood-frame rounded p-3.5 shadow">
+          <div className="pixel-wood-frame rounded p-3 sm:p-3.5 shadow">
             <div className="flex justify-between items-center mb-1.5 font-pixel-title text-[9px] text-[#ffe599]">
               <span>1. GUESS THE YEAR</span>
               <span className="text-amber-400 font-pixel-ui">{minYear} - {maxYear}</span>
@@ -457,7 +462,7 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
                       sounds.playTick();
                       setSelectedYear(yr);
                     }}
-                    className={`py-2 px-1 rounded font-pixel-title text-xs pixel-btn cursor-pointer ${
+                    className={`py-2.5 sm:py-2 px-1 rounded font-pixel-title text-[11px] sm:text-xs pixel-btn cursor-pointer ${
                       selectedYear === yr
                         ? 'bg-[#5c993d] border-2 border-[#97e072] text-white shadow font-bold'
                         : 'bg-[#29160d] border border-[#542813] text-[#ffe2a0] hover:bg-[#3d2012]'
@@ -470,21 +475,25 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
             ) : (
               /* Normal & Hard: Slider */
               <>
-                <div className="flex items-center justify-center gap-2 py-1">
+                <div className="flex items-center justify-center gap-1 sm:gap-2 py-1">
                   <button
+                    type="button"
                     onClick={() => adjustYear(-10)}
-                    className="p-1 px-2 bg-[#29160d] hover:bg-[#3d2012] border border-[#542813] text-amber-300 rounded pixel-btn cursor-pointer"
+                    aria-label="Subtract 10 years"
+                    className="min-w-[36px] min-h-[40px] sm:min-h-[34px] p-1 px-2 bg-[#29160d] hover:bg-[#3d2012] border border-[#542813] text-amber-300 rounded pixel-btn cursor-pointer flex items-center justify-center shrink-0"
                   >
-                    <ChevronsLeft className="w-3.5 h-3.5" />
+                    <ChevronsLeft className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                   </button>
                   <button
+                    type="button"
                     onClick={() => adjustYear(-1)}
-                    className="p-1 px-2.5 bg-[#29160d] hover:bg-[#3d2012] border border-[#542813] text-amber-300 font-pixel-title text-xs rounded pixel-btn cursor-pointer"
+                    aria-label="Subtract 1 year"
+                    className="min-w-[36px] min-h-[40px] sm:min-h-[34px] p-1 px-2 sm:px-2.5 bg-[#29160d] hover:bg-[#3d2012] border border-[#542813] text-amber-300 font-pixel-title text-xs rounded pixel-btn cursor-pointer flex items-center justify-center shrink-0"
                   >
                     -1
                   </button>
 
-                  <div className="px-2 py-1 bg-[#170a04] border-2 border-[#e8a34d] focus-within:border-[#fde047] rounded min-w-[116px] text-center shadow-inner">
+                  <div className="px-1.5 sm:px-2 py-1 bg-[#170a04] border-2 border-[#e8a34d] focus-within:border-[#fde047] rounded flex-1 min-w-[84px] max-w-[126px] sm:min-w-[116px] text-center shadow-inner">
                     <input
                       type="text"
                       inputMode="numeric"
@@ -500,7 +509,7 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
                         }
                       }}
                       maxLength={4}
-                      className="w-24 bg-transparent text-center font-pixel-title text-xl text-[#fcd34d] focus:outline-none tabular-nums"
+                      className="w-full bg-transparent text-center font-pixel-title text-lg sm:text-xl text-[#fcd34d] focus:outline-none tabular-nums"
                     />
                     <div className="text-[8px] font-pixel-ui text-[#b88c60] -mt-0.5">
                       type or slide
@@ -508,83 +517,107 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => adjustYear(1)}
-                    className="p-1 px-2.5 bg-[#29160d] hover:bg-[#3d2012] border border-[#542813] text-amber-300 font-pixel-title text-xs rounded pixel-btn cursor-pointer"
+                    aria-label="Add 1 year"
+                    className="min-w-[36px] min-h-[40px] sm:min-h-[34px] p-1 px-2 sm:px-2.5 bg-[#29160d] hover:bg-[#3d2012] border border-[#542813] text-amber-300 font-pixel-title text-xs rounded pixel-btn cursor-pointer flex items-center justify-center shrink-0"
                   >
                     +1
                   </button>
                   <button
+                    type="button"
                     onClick={() => adjustYear(10)}
-                    className="p-1 px-2 bg-[#29160d] hover:bg-[#3d2012] border border-[#542813] text-amber-300 rounded pixel-btn cursor-pointer"
+                    aria-label="Add 10 years"
+                    className="min-w-[36px] min-h-[40px] sm:min-h-[34px] p-1 px-2 bg-[#29160d] hover:bg-[#3d2012] border border-[#542813] text-amber-300 rounded pixel-btn cursor-pointer flex items-center justify-center shrink-0"
                   >
-                    <ChevronsRight className="w-3.5 h-3.5" />
+                    <ChevronsRight className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                   </button>
                 </div>
 
-                <input
-                  type="range"
-                  min={minYear}
-                  max={maxYear}
-                  value={selectedYear}
-                  onChange={handleSliderChange}
-                  className="w-full h-2 bg-[#170a04] rounded appearance-none cursor-pointer accent-amber-500 border border-[#542813] mt-2"
-                />
+                <div className="pt-2 pb-1">
+                  <input
+                    type="range"
+                    min={minYear}
+                    max={maxYear}
+                    value={selectedYear}
+                    onChange={handleSliderChange}
+                    aria-label="Select release year with slider"
+                    className="w-full pixel-slider cursor-pointer block"
+                  />
+                </div>
               </>
             )}
           </div>
 
           {/* 2. TITLE / ARTIST GUESS */}
-          <div className="pixel-wood-frame rounded p-3.5 shadow" ref={searchContainerRef}>
+          <div className="pixel-wood-frame rounded p-3 sm:p-3.5 shadow" ref={searchContainerRef}>
             <div className="font-pixel-title text-[9px] text-[#ffe599] mb-1.5">
               2. GUESS {theme.creatorLabel.toUpperCase()} / TITLE
             </div>
 
             {/* Easy mode 4 cards */}
             {difficulty === 'easy' && easyOptions ? (
-              <div className="grid grid-cols-2 gap-1.5 my-1">
-                {easyOptions.identifications.map((opt, i) => (
-                  <div
-                    key={`${opt.title}-${opt.creator}-${i}`}
-                    className="relative group hover:z-40 focus-within:z-40"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        sounds.playTick();
-                        setSelectedEasyId(opt.label);
-                      }}
-                      aria-label={`${opt.title} by ${opt.creator}`}
-                      className={`w-full h-full p-2 rounded text-left pixel-btn cursor-pointer flex flex-col justify-between gap-0.5 ${
-                        selectedEasyId === opt.label
-                          ? 'bg-[#5c993d] border-2 border-[#97e072] text-white shadow'
-                          : 'bg-[#29160d] border border-[#542813] text-[#ffe2a0] hover:bg-[#3d2012]'
-                      }`}
-                    >
-                      <div className="font-pixel-title text-[10px] leading-snug line-clamp-2 break-words">
-                        {opt.title}
-                      </div>
-                      <div className="text-[8px] font-pixel-ui opacity-75 truncate">
-                        by {opt.creator}
-                      </div>
-                    </button>
-
-                    {/* Instant hover/focus popover showing complete untruncated title & creator */}
+              <>
+                <div className="grid grid-cols-1 min-[440px]:grid-cols-2 gap-2 my-1">
+                  {easyOptions.identifications.map((opt, i) => (
                     <div
-                      role="tooltip"
-                      className={`hidden group-hover:block group-focus-within:block absolute bottom-full mb-2 z-50 w-max min-w-full max-w-[260px] sm:max-w-xs px-2.5 py-2 rounded bg-[#140903] border-2 border-[#fcd34d] shadow-2xl pointer-events-none ${
-                        i % 2 === 1 ? 'right-0' : 'left-0'
-                      }`}
+                      key={`${opt.title}-${opt.creator}-${i}`}
+                      className="relative group hover:z-40 focus-within:z-40"
                     >
-                      <div className="font-pixel-title text-[10px] leading-relaxed text-[#ffe599] whitespace-normal break-words">
-                        {opt.title}
-                      </div>
-                      <div className="text-[9px] font-pixel-ui text-[#d7974e] mt-1 whitespace-normal break-words">
-                        by {opt.creator}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playTick();
+                          setSelectedEasyId(opt.label);
+                        }}
+                        aria-label={`${opt.title} by ${opt.creator}`}
+                        className={`w-full h-full px-2.5 py-2.5 sm:p-2 rounded text-left pixel-btn cursor-pointer flex flex-col justify-between gap-0.5 ${
+                          selectedEasyId === opt.label
+                            ? 'bg-[#5c993d] border-2 border-[#97e072] text-white shadow'
+                            : 'bg-[#29160d] border border-[#542813] text-[#ffe2a0] hover:bg-[#3d2012]'
+                        }`}
+                      >
+                        <div className="font-pixel-title text-[10px] leading-snug line-clamp-2 break-words">
+                          {opt.title}
+                        </div>
+                        <div className="text-[9px] sm:text-[8px] font-pixel-ui opacity-75 truncate">
+                          by {opt.creator}
+                        </div>
+                      </button>
+
+                      {/* Instant hover popover on pointer devices showing complete untruncated title & creator */}
+                      <div
+                        role="tooltip"
+                        className={`hover-tooltip absolute bottom-full mb-2 z-50 w-max min-w-full max-w-[calc(100vw-2.5rem)] sm:max-w-xs px-2.5 py-2 rounded bg-[#140903] border-2 border-[#fcd34d] shadow-2xl pointer-events-none ${
+                          i % 2 === 1 ? 'right-0' : 'left-0'
+                        }`}
+                      >
+                        <div className="font-pixel-title text-[10px] leading-relaxed text-[#ffe599] whitespace-normal break-words">
+                          {opt.title}
+                        </div>
+                        <div className="text-[9px] font-pixel-ui text-[#d7974e] mt-1 whitespace-normal break-words">
+                          by {opt.creator}
+                        </div>
                       </div>
                     </div>
+                  ))}
+                </div>
+
+                {/* Selected Choice Full-Title Preview (ensures full title & creator visibility on touchscreens too) */}
+                {selectedEasyOption && (
+                  <div className="mt-2 px-2.5 py-2 rounded bg-[#140903] border border-[#5c993d] text-left animate-fadeIn">
+                    <div className="text-[8px] font-pixel-ui uppercase text-emerald-400 mb-0.5">
+                      Selected Pick
+                    </div>
+                    <div className="font-pixel-title text-[10px] sm:text-xs leading-relaxed text-[#ffe599] break-words">
+                      {selectedEasyOption.title}
+                    </div>
+                    <div className="text-[9px] sm:text-[10px] font-pixel-ui text-[#d7974e] mt-0.5 break-words">
+                      by {selectedEasyOption.creator}
+                    </div>
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             ) : (
               /* Normal & Hard: Search Input */
               <div className="relative">
@@ -607,27 +640,30 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
                       ? `Type from memory: Title, ${theme.creatorLabel}, or both...`
                       : `Type Title, ${theme.creatorLabel}, or both...`
                   }
-                  className="w-full px-3 py-2 rounded bg-[#170a04] border-2 border-[#542813] text-amber-100 placeholder-[#8c603a] font-pixel-body text-xs focus:outline-none focus:border-amber-400"
+                  className="w-full px-3 py-2.5 sm:py-2 pr-9 rounded bg-[#170a04] border-2 border-[#542813] text-amber-100 placeholder-[#8c603a] font-pixel-body text-base sm:text-xs focus:outline-none focus:border-amber-400"
                 />
 
                 {typedGuess && (
                   <button
+                    type="button"
+                    aria-label="Clear guess text"
                     onClick={() => {
                       suppressAutoOpenRef.current = false;
                       setTypedGuess('');
                       setIsDropdownOpen(false);
                     }}
-                    className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-amber-400 hover:text-white"
+                    className="absolute inset-y-0 right-0 px-3 flex items-center text-amber-400 hover:text-white cursor-pointer"
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <X className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                   </button>
                 )}
 
                 {/* Suggestions Dropdown (Normal mode only; disabled completely in Hard mode) */}
                 {difficulty === 'normal' && isDropdownOpen && suggestions.length > 0 && (
-                  <div className="absolute left-0 right-0 mt-1 bg-[#261309] border-2 border-[#542813] rounded shadow-2xl max-h-40 overflow-y-auto z-30 py-0.5 divide-y divide-[#3d2012]">
+                  <div className="absolute left-0 right-0 mt-1 bg-[#261309] border-2 border-[#542813] rounded shadow-2xl max-h-48 sm:max-h-40 overflow-y-auto overscroll-contain z-30 py-0.5 divide-y divide-[#3d2012]">
                     {suggestions.map((opt, idx) => (
                       <button
+                        type="button"
                         key={idx}
                         onClick={() => {
                           sounds.playClick();
@@ -636,11 +672,11 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
                           setTypedGuess(prefix + opt.label);
                           setIsDropdownOpen(false);
                         }}
-                        className="w-full text-left px-3 py-1 hover:bg-[#3d2012] flex items-center justify-between text-xs font-pixel-body cursor-pointer"
+                        className="w-full text-left px-3 py-2.5 sm:py-1.5 hover:bg-[#3d2012] flex items-center justify-between text-sm sm:text-xs font-pixel-body cursor-pointer"
                       >
                         <span className="font-bold text-[#ffe2a0] truncate mr-2">{opt.label}</span>
                         {opt.secondary && (
-                          <span className="text-[8px] font-pixel-ui text-[#b88c60] shrink-0">{opt.secondary}</span>
+                          <span className="text-[9px] sm:text-[8px] font-pixel-ui text-[#b88c60] shrink-0">{opt.secondary}</span>
                         )}
                       </button>
                     ))}
@@ -654,7 +690,7 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
           <button
             onClick={handleSubmit}
             disabled={isSubmitting}
-            className="w-full py-3 bg-[#be2e2e] hover:bg-[#d63a3a] border-4 border-[#570f0f] font-pixel-title text-sm text-white rounded pixel-btn shadow-xl cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full py-3.5 sm:py-3 bg-[#be2e2e] hover:bg-[#d63a3a] border-4 border-[#570f0f] font-pixel-title text-xs min-[380px]:text-sm text-white rounded pixel-btn shadow-xl cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
           >
             <Check className="w-4 h-4" />
             <span>SUBMIT GUESS ({displaySubmitYear})</span>

@@ -89,6 +89,7 @@ export const PixelCover: React.FC<PixelCoverProps> = ({
           <img
             src={imageUrl}
             alt={altText}
+            decoding="async"
             className="w-full h-full object-contain pointer-events-none select-none"
             style={{
               filter: 'blur(4px) contrast(1.2)',

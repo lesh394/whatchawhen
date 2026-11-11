@@ -50,43 +50,44 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   };
 
   return (
-    <div className="w-full flex-1 flex flex-col items-center justify-center px-4 py-8 max-w-3xl mx-auto relative z-10 select-none">
+    <div className="w-full flex-1 flex flex-col items-center justify-center px-3 sm:px-4 py-4 sm:py-8 max-w-3xl mx-auto relative z-10 select-none">
       
       {/* Clean Hero Header */}
-      <div className="text-center mb-6">
-        <h1 className="text-4xl sm:text-5xl md:text-6xl font-pixel-title text-[#ffe599] tracking-tight drop-shadow-[0_4px_0_#2b1308] mb-2">
+      <div className="text-center mb-4 sm:mb-6 w-full">
+        <h1 className="text-[24px] min-[380px]:text-[29px] sm:text-5xl md:text-6xl font-pixel-title text-[#ffe599] tracking-tight drop-shadow-[0_4px_0_#2b1308] mb-2 leading-tight">
           WhatchaWhen
         </h1>
-        <p className="font-pixel-ui text-xs sm:text-sm text-[#eec48e] max-w-md mx-auto">
+        <p className="font-pixel-ui text-[11px] sm:text-sm text-[#eec48e] max-w-md mx-auto px-1">
           Spot the cover. Call the year. Prove you know your culture.
         </p>
       </div>
 
       {/* Main Game Setup Card */}
-      <div className="w-full pixel-wood-frame rounded-lg p-5 sm:p-6 shadow-2xl mb-6">
+      <div className="w-full pixel-wood-frame rounded-lg p-3.5 sm:p-6 shadow-2xl mb-5 sm:mb-6">
         
         {/* Step 1: Category Selector */}
-        <div className="mb-5">
+        <div className="mb-4 sm:mb-5">
           <div className="mb-2">
             <span className="text-[10px] font-pixel-title text-[#ffe2a0] uppercase tracking-wider">
               1. Pick a Category
             </span>
           </div>
 
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
             {/* Music */}
             <div
               onClick={() => {
                 sounds.playClick();
                 onSelectCategory('music');
               }}
-              className={`relative p-3 rounded flex flex-col items-center justify-center gap-1 pixel-btn cursor-pointer transition-all ${
+              className={`relative pt-7 pb-2.5 px-1.5 sm:p-3 rounded flex flex-col items-center justify-center gap-1 pixel-btn cursor-pointer transition-all ${
                 selectedCategory === 'music'
                   ? 'bg-[#4a1c59] border-2 border-[#d946ef] text-white shadow-[0_4px_0_#2b0c36] -translate-y-0.5'
                   : 'bg-[#291612] border-2 border-[#4d2817] text-[#edd1b0] hover:bg-[#381e18]'
               }`}
             >
               <button
+                type="button"
                 onClick={(e) => openInfo(e, {
                   title: 'Music',
                   icon: '🎵',
@@ -97,15 +98,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     'Name the artist, title, or both — nailing both gets top points.'
                   ]
                 })}
-                className="absolute top-1.5 right-1.5 p-1 bg-black/40 hover:bg-black/70 rounded-full text-purple-300 hover:text-white cursor-pointer z-10"
+                className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 p-1.5 sm:p-1 bg-black/40 hover:bg-black/70 rounded-full text-purple-300 hover:text-white cursor-pointer z-10"
                 title="Category Info"
+                aria-label="Music category info"
               >
                 <Info className="w-3 h-3" />
               </button>
 
-              <span className="text-2xl">🎵</span>
-              <span className="font-pixel-title text-xs">Music</span>
-              <span className="text-[9px] font-pixel-ui opacity-75">1950 - 2026</span>
+              <span className="text-xl sm:text-2xl">🎵</span>
+              <span className="font-pixel-title text-[10px] sm:text-xs">Music</span>
+              <span className="text-[8px] sm:text-[9px] font-pixel-ui opacity-75 whitespace-nowrap">1950 - 2026</span>
             </div>
 
             {/* Books */}
@@ -114,13 +116,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 sounds.playClick();
                 onSelectCategory('books');
               }}
-              className={`relative p-3 rounded flex flex-col items-center justify-center gap-1 pixel-btn cursor-pointer transition-all ${
+              className={`relative pt-7 pb-2.5 px-1.5 sm:p-3 rounded flex flex-col items-center justify-center gap-1 pixel-btn cursor-pointer transition-all ${
                 selectedCategory === 'books'
                   ? 'bg-[#522b14] border-2 border-[#f59e0b] text-white shadow-[0_4px_0_#331808] -translate-y-0.5'
                   : 'bg-[#291612] border-2 border-[#4d2817] text-[#edd1b0] hover:bg-[#381e18]'
               }`}
             >
               <button
+                type="button"
                 onClick={(e) => openInfo(e, {
                   title: 'Books',
                   icon: '📚',
@@ -131,18 +134,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     'Call the year it came out and name the book and author.'
                   ]
                 })}
-                className="absolute top-1.5 right-1.5 p-1 bg-black/40 hover:bg-black/70 rounded-full text-amber-300 hover:text-white cursor-pointer z-10"
+                className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 p-1.5 sm:p-1 bg-black/40 hover:bg-black/70 rounded-full text-amber-300 hover:text-white cursor-pointer z-10"
                 title="Category Info"
+                aria-label="Books category info"
               >
                 <Info className="w-3 h-3" />
               </button>
 
-              <span className="text-2xl">📚</span>
-              <span className="font-pixel-title text-xs flex items-center gap-1">
+              <span className="text-xl sm:text-2xl">📚</span>
+              <span className="font-pixel-title text-[10px] sm:text-xs flex items-center justify-center gap-1">
                 <span>Books</span>
-                <EyeOff className="w-3 h-3 text-amber-300" />
+                <EyeOff className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-300 shrink-0" />
               </span>
-              <span className="text-[9px] font-pixel-ui opacity-75">1600 - 2026</span>
+              <span className="text-[8px] sm:text-[9px] font-pixel-ui opacity-75 whitespace-nowrap">1600 - 2026</span>
             </div>
 
             {/* Art */}
@@ -151,32 +155,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 sounds.playClick();
                 onSelectCategory('art');
               }}
-              className={`relative p-3 rounded flex flex-col items-center justify-center gap-1 pixel-btn cursor-pointer transition-all ${
+              className={`relative pt-7 pb-2.5 px-1.5 sm:p-3 rounded flex flex-col items-center justify-center gap-1 pixel-btn cursor-pointer transition-all ${
                 selectedCategory === 'art'
                   ? 'bg-[#4a3b12] border-2 border-[#eab308] text-white shadow-[0_4px_0_#2b2207] -translate-y-0.5'
                   : 'bg-[#291612] border-2 border-[#4d2817] text-[#edd1b0] hover:bg-[#381e18]'
               }`}
             >
               <button
+                type="button"
                 onClick={(e) => openInfo(e, {
                   title: 'Art',
                   icon: '🎨',
                   subtitle: 'Famous Paintings',
                   description: 'Museum pieces you can actually zoom into and explore.',
                   rules: [
-                    'Click any painting to zoom in for details and brushwork.',
+                    'Click or tap any painting to zoom and pinch-inspect brushwork.',
                     'Guess when it was painted plus the artist and title.'
                   ]
                 })}
-                className="absolute top-1.5 right-1.5 p-1 bg-black/40 hover:bg-black/70 rounded-full text-yellow-300 hover:text-white cursor-pointer z-10"
+                className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 p-1.5 sm:p-1 bg-black/40 hover:bg-black/70 rounded-full text-yellow-300 hover:text-white cursor-pointer z-10"
                 title="Category Info"
+                aria-label="Art category info"
               >
                 <Info className="w-3 h-3" />
               </button>
 
-              <span className="text-2xl">🎨</span>
-              <span className="font-pixel-title text-xs">Art</span>
-              <span className="text-[9px] font-pixel-ui opacity-75">1400 - 2026</span>
+              <span className="text-xl sm:text-2xl">🎨</span>
+              <span className="font-pixel-title text-[10px] sm:text-xs">Art</span>
+              <span className="text-[8px] sm:text-[9px] font-pixel-ui opacity-75 whitespace-nowrap">1400 - 2026</span>
             </div>
 
             {/* Everything (Wide full-span button below the 3 categories above) */}
@@ -185,13 +191,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 sounds.playClick();
                 onSelectCategory('everything');
               }}
-              className={`col-span-3 relative px-4 py-3 rounded flex items-center justify-center gap-3 pixel-btn cursor-pointer transition-all ${
+              className={`col-span-3 relative px-3 sm:px-4 py-3 rounded flex items-center justify-center gap-2.5 sm:gap-3 pixel-btn cursor-pointer transition-all ${
                 selectedCategory === 'everything'
                   ? 'bg-[#12453b] border-2 border-[#10b981] text-white shadow-[0_4px_0_#072620] -translate-y-0.5'
                   : 'bg-[#291612] border-2 border-[#4d2817] text-[#edd1b0] hover:bg-[#381e18]'
               }`}
             >
               <button
+                type="button"
                 onClick={(e) => openInfo(e, {
                   title: 'Everything Mix',
                   icon: '🎲',
@@ -202,16 +209,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     'Music and book covers stay pixelated; paintings stay zoomable.'
                   ]
                 })}
-                className="absolute top-2 right-2 p-1 bg-black/40 hover:bg-black/70 rounded-full text-emerald-300 hover:text-white cursor-pointer z-10"
+                className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 p-1.5 sm:p-1 bg-black/40 hover:bg-black/70 rounded-full text-emerald-300 hover:text-white cursor-pointer z-10"
                 title="Category Info"
+                aria-label="Everything Mix category info"
               >
                 <Info className="w-3 h-3" />
               </button>
 
-              <span className="text-2xl sm:text-3xl">🎲</span>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2.5 text-center sm:text-left pr-6">
+              <span className="text-2xl sm:text-3xl shrink-0">🎲</span>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2.5 text-left sm:text-left pr-8">
                 <span className="font-pixel-title text-xs sm:text-sm">Everything</span>
-                <span className="text-[9px] sm:text-[10px] font-pixel-ui opacity-80">
+                <span className="text-[9px] sm:text-[10px] font-pixel-ui opacity-80 leading-snug">
                   All Mixed • Random Music, Books &amp; Art
                 </span>
               </div>
@@ -220,27 +228,28 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </div>
 
         {/* Step 2: Difficulty Level */}
-        <div className="mb-5">
+        <div className="mb-4 sm:mb-5">
           <div className="mb-2">
             <span className="text-[10px] font-pixel-title text-[#ffe2a0] uppercase tracking-wider">
               2. Difficulty
             </span>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
             {/* EASY */}
             <div
               onClick={() => {
                 sounds.playClick();
                 onSelectDifficulty('easy');
               }}
-              className={`relative py-2.5 px-2 text-center rounded pixel-btn cursor-pointer ${
+              className={`relative pt-6 pb-2 px-1 sm:py-2.5 sm:px-2 text-center rounded pixel-btn cursor-pointer ${
                 difficulty === 'easy'
                   ? 'bg-[#1b431f] border-2 border-[#4ade80] text-emerald-200 font-bold'
                   : 'bg-[#1e110a] border-2 border-[#3d2012] text-stone-400 hover:text-white'
               }`}
             >
               <button
+                type="button"
                 onClick={(e) => openInfo(e, {
                   title: 'Easy Mode',
                   icon: '🌱',
@@ -251,12 +260,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     'Super forgiving if your year guess is a bit off.'
                   ]
                 })}
-                className="absolute top-1 right-1 p-0.5 bg-black/40 hover:bg-black/70 rounded-full text-emerald-300 z-10"
+                className="absolute top-1 right-1 p-1 sm:p-0.5 bg-black/40 hover:bg-black/70 rounded-full text-emerald-300 z-10"
+                aria-label="Easy difficulty info"
               >
-                <Info className="w-2.5 h-2.5" />
+                <Info className="w-3 h-3 sm:w-2.5 sm:h-2.5" />
               </button>
-              <div className="font-pixel-title text-[10px]">🌱 EASY</div>
-              <div className="text-[8px] font-pixel-ui opacity-75">4 Choices • Chill</div>
+              <div className="font-pixel-title text-[9px] sm:text-[10px] whitespace-nowrap">🌱 EASY</div>
+              <div className="text-[8px] font-pixel-ui opacity-75 leading-tight mt-0.5">4 Choices • Chill</div>
             </div>
 
             {/* NORMAL */}
@@ -265,13 +275,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 sounds.playClick();
                 onSelectDifficulty('normal');
               }}
-              className={`relative py-2.5 px-2 text-center rounded pixel-btn cursor-pointer ${
+              className={`relative pt-6 pb-2 px-1 sm:py-2.5 sm:px-2 text-center rounded pixel-btn cursor-pointer ${
                 difficulty === 'normal'
                   ? 'bg-[#4a3311] border-2 border-[#f59e0b] text-amber-200 font-bold'
                   : 'bg-[#1e110a] border-2 border-[#3d2012] text-stone-400 hover:text-white'
               }`}
             >
               <button
+                type="button"
                 onClick={(e) => openInfo(e, {
                   title: 'Normal Mode',
                   icon: '🌾',
@@ -283,12 +294,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     '1 free hint per run — need more? Watch a quick goofy ad.'
                   ]
                 })}
-                className="absolute top-1 right-1 p-0.5 bg-black/40 hover:bg-black/70 rounded-full text-amber-300 z-10"
+                className="absolute top-1 right-1 p-1 sm:p-0.5 bg-black/40 hover:bg-black/70 rounded-full text-amber-300 z-10"
+                aria-label="Normal difficulty info"
               >
-                <Info className="w-2.5 h-2.5" />
+                <Info className="w-3 h-3 sm:w-2.5 sm:h-2.5" />
               </button>
-              <div className="font-pixel-title text-[10px]">🌾 NORMAL</div>
-              <div className="text-[8px] font-pixel-ui opacity-75">Type It • 1 Hint</div>
+              <div className="font-pixel-title text-[9px] sm:text-[10px] whitespace-nowrap">🌾 NORMAL</div>
+              <div className="text-[8px] font-pixel-ui opacity-75 leading-tight mt-0.5">Type It • 1 Hint</div>
             </div>
 
             {/* HARD */}
@@ -297,13 +309,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 sounds.playClick();
                 onSelectDifficulty('hard');
               }}
-              className={`relative py-2.5 px-2 text-center rounded pixel-btn cursor-pointer ${
+              className={`relative pt-6 pb-2 px-1 sm:py-2.5 sm:px-2 text-center rounded pixel-btn cursor-pointer ${
                 difficulty === 'hard'
                   ? 'bg-[#4a1515] border-2 border-[#f87171] text-rose-200 font-bold'
                   : 'bg-[#1e110a] border-2 border-[#3d2012] text-stone-400 hover:text-white'
               }`}
             >
               <button
+                type="button"
                 onClick={(e) => openInfo(e, {
                   title: 'Hard Mode',
                   icon: '⚔️',
@@ -315,12 +328,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     'Zero hints and no autocomplete in any category.'
                   ]
                 })}
-                className="absolute top-1 right-1 p-0.5 bg-black/40 hover:bg-black/70 rounded-full text-rose-300 z-10"
+                className="absolute top-1 right-1 p-1 sm:p-0.5 bg-black/40 hover:bg-black/70 rounded-full text-rose-300 z-10"
+                aria-label="Hard difficulty info"
               >
-                <Info className="w-2.5 h-2.5" />
+                <Info className="w-3 h-3 sm:w-2.5 sm:h-2.5" />
               </button>
-              <div className="font-pixel-title text-[10px]">⚔️ HARD</div>
-              <div className="text-[8px] font-pixel-ui opacity-75">No Mercy • Zero Help</div>
+              <div className="font-pixel-title text-[9px] sm:text-[10px] whitespace-nowrap">⚔️ HARD</div>
+              <div className="text-[8px] font-pixel-ui opacity-75 leading-tight mt-0.5">No Mercy • Zero Help</div>
             </div>
           </div>
         </div>
@@ -339,13 +353,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 sounds.playClick();
                 onSelectMode('classic');
               }}
-              className={`relative py-2.5 px-3 rounded flex items-center justify-center gap-1.5 pixel-btn cursor-pointer ${
+              className={`relative pt-6 pb-2.5 px-2 sm:py-2.5 sm:px-3 sm:pr-7 rounded flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 pixel-btn cursor-pointer ${
                 gameMode === 'classic'
                   ? 'bg-[#824419] border-2 border-[#e6a86c] text-[#ffeec9] font-bold'
                   : 'bg-[#1e110a] border-2 border-[#3d2012] text-stone-400 hover:text-white'
               }`}
             >
               <button
+                type="button"
                 onClick={(e) => openInfo(e, {
                   title: 'Classic Mode',
                   icon: '🏆',
@@ -356,12 +371,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     'Get graded on how close your year was and whether you nailed the work.'
                   ]
                 })}
-                className="absolute top-1.5 right-1.5 p-0.5 bg-black/40 hover:bg-black/70 rounded-full text-amber-300 z-10"
+                className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 p-1 sm:p-0.5 bg-black/40 hover:bg-black/70 rounded-full text-amber-300 z-10"
+                aria-label="Classic mode info"
               >
-                <Info className="w-2.5 h-2.5" />
+                <Info className="w-3 h-3 sm:w-2.5 sm:h-2.5" />
               </button>
-              <Trophy className="w-3.5 h-3.5 text-amber-400" />
-              <span className="font-pixel-title text-[10px]">Classic (5 Rnds)</span>
+              <Trophy className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="font-pixel-title text-[9px] sm:text-[10px] text-center">Classic (5 Rnds)</span>
             </div>
 
             <div
@@ -369,13 +385,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 sounds.playClick();
                 onSelectMode('forever');
               }}
-              className={`relative py-2.5 px-3 rounded flex items-center justify-center gap-1.5 pixel-btn cursor-pointer ${
+              className={`relative pt-6 pb-2.5 px-2 sm:py-2.5 sm:px-3 sm:pr-7 rounded flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 pixel-btn cursor-pointer ${
                 gameMode === 'forever'
                   ? 'bg-[#821919] border-2 border-[#e66c6c] text-[#ffeec9] font-bold'
                   : 'bg-[#1e110a] border-2 border-[#3d2012] text-stone-400 hover:text-white'
               }`}
             >
               <button
+                type="button"
                 onClick={(e) => openInfo(e, {
                   title: 'Forever Survival',
                   icon: '❤️',
@@ -387,12 +404,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     'Survive as many rounds as possible!'
                   ]
                 })}
-                className="absolute top-1.5 right-1.5 p-0.5 bg-black/40 hover:bg-black/70 rounded-full text-rose-300 z-10"
+                className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 p-1 sm:p-0.5 bg-black/40 hover:bg-black/70 rounded-full text-rose-300 z-10"
+                aria-label="Forever mode info"
               >
-                <Info className="w-2.5 h-2.5" />
+                <Info className="w-3 h-3 sm:w-2.5 sm:h-2.5" />
               </button>
-              <Heart className="w-3.5 h-3.5 text-rose-400 fill-current" />
-              <span className="font-pixel-title text-[10px]">Forever (100 HP)</span>
+              <Heart className="w-3.5 h-3.5 text-rose-400 fill-current shrink-0" />
+              <span className="font-pixel-title text-[9px] sm:text-[10px] text-center">Forever (100 HP)</span>
             </div>
           </div>
         </div>
@@ -400,13 +418,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       </div>
 
       {/* Main Action Buttons */}
-      <div className="flex flex-col sm:flex-row items-center justify-center flex-wrap gap-3 w-full sm:w-auto">
+      <div className="flex flex-col sm:flex-row items-center justify-center flex-wrap gap-2.5 sm:gap-3 w-full sm:w-auto">
         <button
           onClick={() => {
             sounds.playCoin();
             onStartGame();
           }}
-          className="w-full sm:w-auto px-10 py-4 bg-[#5c993d] hover:bg-[#6ab346] border-4 border-[#2b4c1a] font-pixel-title text-base sm:text-lg text-white rounded pixel-btn shadow-2xl cursor-pointer flex items-center justify-center gap-2 tracking-wider"
+          className="w-full sm:w-auto px-10 py-3.5 sm:py-4 bg-[#5c993d] hover:bg-[#6ab346] border-4 border-[#2b4c1a] font-pixel-title text-base sm:text-lg text-white rounded pixel-btn shadow-2xl cursor-pointer flex items-center justify-center gap-2 tracking-wider"
         >
           <Play className="w-5 h-5 fill-current" />
           <span>PLAY NOW</span>
@@ -417,7 +435,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             sounds.playCoin();
             onOpenMultiplayer();
           }}
-          className="w-full sm:w-auto px-6 py-4 bg-[#7b3d17] hover:bg-[#934a1d] border-4 border-[#431e08] font-pixel-title text-xs sm:text-sm text-[#ffe599] hover:text-white rounded pixel-btn shadow-xl cursor-pointer flex items-center justify-center gap-2"
+          className="w-full sm:w-auto px-6 py-3.5 sm:py-4 bg-[#7b3d17] hover:bg-[#934a1d] border-4 border-[#431e08] font-pixel-title text-xs sm:text-sm text-[#ffe599] hover:text-white rounded pixel-btn shadow-xl cursor-pointer flex items-center justify-center gap-2"
         >
           <Swords className="w-4 h-4 text-amber-300" />
           <span>MULTIPLAYER</span>
@@ -428,7 +446,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             sounds.playClick();
             onOpenHelp();
           }}
-          className="w-full sm:w-auto px-5 py-4 bg-[#2b170c] hover:bg-[#3d2012] border-2 border-[#542813] text-[#eed0ae] font-pixel-ui text-xs rounded pixel-btn cursor-pointer flex items-center justify-center gap-1.5"
+          className="w-full sm:w-auto px-5 py-3.5 sm:py-4 bg-[#2b170c] hover:bg-[#3d2012] border-2 border-[#542813] text-[#eed0ae] font-pixel-ui text-xs rounded pixel-btn cursor-pointer flex items-center justify-center gap-1.5"
         >
           <HelpCircle className="w-4 h-4" />
           <span>How to Play</span>

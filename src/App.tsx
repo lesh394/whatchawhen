@@ -573,7 +573,7 @@ export function App() {
 
   return (
     <div
-      className={`min-h-screen flex flex-col relative transition-colors duration-500 bg-gradient-to-b ${theme.bgTexture} text-[#ffebc4]`}
+      className={`min-h-[100dvh] flex flex-col relative transition-colors duration-500 bg-gradient-to-b ${theme.bgTexture} text-[#ffebc4] pb-[env(safe-area-inset-bottom)]`}
     >
       {/* 2D Pixel Animated Background Characters & Floating Symbols */}
       <PixelDecorations category={category} />
@@ -595,7 +595,7 @@ export function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col justify-center relative z-10">
+      <main className="flex-1 w-full flex flex-col justify-center relative z-10">
         {gamePhase === 'home' && (
           <HomeScreen
             selectedCategory={category}
@@ -662,17 +662,19 @@ export function App() {
 
         {/* Live Wikipedia Fetching Modal Overlay */}
         {isLoadingLiveItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
-            <div className="pixel-wood-frame p-6 max-w-sm w-full text-center rounded shadow-2xl">
-              <div className="text-4xl mb-3 animate-spin duration-1000">⏳</div>
-              <h3 className="font-pixel-title text-sm text-[#fcd34d] mb-1">
-                PULLING NEXT COVER...
-              </h3>
-              <p className="font-pixel-ui text-[11px] text-[#eed0ae] mb-3">
-                Grabbing a fresh random pick from Wikipedia archives.
-              </p>
-              <div className="w-full bg-[#1b0d06] rounded-full h-2 border border-[#804a23] overflow-hidden">
-                <div className="bg-[#4ade80] h-full w-2/3 animate-pulse"></div>
+          <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-black/85 sm:backdrop-blur-sm animate-fadeIn">
+            <div className="min-h-full flex items-center justify-center p-4">
+              <div className="pixel-wood-frame p-5 sm:p-6 max-w-sm w-full text-center rounded shadow-2xl my-auto">
+                <div className="text-4xl mb-3 animate-spin duration-1000">⏳</div>
+                <h3 className="font-pixel-title text-sm text-[#fcd34d] mb-1">
+                  PULLING NEXT COVER...
+                </h3>
+                <p className="font-pixel-ui text-[11px] text-[#eed0ae] mb-3">
+                  Grabbing a fresh random pick from Wikipedia archives.
+                </p>
+                <div className="w-full bg-[#1b0d06] rounded-full h-2 border border-[#804a23] overflow-hidden">
+                  <div className="bg-[#4ade80] h-full w-2/3 animate-pulse"></div>
+                </div>
               </div>
             </div>
           </div>

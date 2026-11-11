@@ -11,23 +11,25 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-fadeIn select-none"
+      className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-black/85 sm:backdrop-blur-sm animate-fadeIn select-none"
       onClick={onClose}
     >
-      <div 
-        className="relative max-w-xl w-full pixel-wood-frame rounded p-6 shadow-2xl overflow-y-auto max-h-[90vh] text-[#ffebc4]"
-        onClick={e => e.stopPropagation()}
-      >
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-1 bg-[#261106] border border-[#a47648] text-[#ffe2a0] hover:text-white rounded-sm pixel-btn cursor-pointer"
+      <div className="min-h-full flex items-center justify-center p-3 sm:p-4">
+        <div 
+          className="relative max-w-xl w-full pixel-wood-frame rounded p-4 sm:p-6 my-auto shadow-2xl text-[#ffebc4]"
+          onClick={e => e.stopPropagation()}
         >
-          <X className="w-4 h-4" />
-        </button>
+          <button
+            onClick={onClose}
+            aria-label="Close help"
+            className="absolute top-3 right-3 sm:top-4 sm:right-4 p-2 sm:p-1.5 bg-[#261106] border border-[#a47648] text-[#ffe2a0] hover:text-white rounded-sm pixel-btn cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
 
-        <h2 className="font-pixel-title text-base sm:text-lg text-[#ffe599] mb-1 flex items-center gap-2">
-          <span>🕰️ HOW TO PLAY</span>
-        </h2>
+          <h2 className="font-pixel-title text-sm sm:text-lg text-[#ffe599] mb-1 pr-10 flex items-center gap-2">
+            <span>🕰️ HOW TO PLAY</span>
+          </h2>
         <p className="font-pixel-ui text-[11px] text-[#d7974e] mb-4">
           Guess the work. Call the year. Simple as that.
         </p>
@@ -72,10 +74,11 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
 
         <button
           onClick={onClose}
-          className="mt-5 w-full py-2.5 rounded-sm bg-[#5c993d] hover:bg-[#6ab346] border-2 border-[#2b4c1a] font-pixel-title text-xs text-white pixel-btn shadow-lg cursor-pointer"
+          className="mt-5 w-full py-3 sm:py-2.5 rounded-sm bg-[#5c993d] hover:bg-[#6ab346] border-2 border-[#2b4c1a] font-pixel-title text-xs text-white pixel-btn shadow-lg cursor-pointer"
         >
           LET'S PLAY!
         </button>
+        </div>
       </div>
     </div>
   );

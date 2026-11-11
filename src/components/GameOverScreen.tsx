@@ -201,10 +201,12 @@ export const GameOverScreen: React.FC<GameOverScreenProps> = ({
   useEffect(() => {
     if (!isFainted) {
       sounds.playSuccess();
+      const burstCount = typeof window !== 'undefined' && window.innerWidth < 640 ? 45 : 90;
       confetti({
-        particleCount: 90,
+        particleCount: burstCount,
         spread: 80,
         origin: { y: 0.5 },
+        disableForReducedMotion: true,
       });
     } else {
       sounds.playHurt();
@@ -247,26 +249,26 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
   );
 
   return (
-    <div className="w-full flex-1 max-w-4xl mx-auto px-4 py-8 flex flex-col items-center animate-fadeIn select-none relative z-10">
+    <div className="w-full flex-1 max-w-4xl mx-auto px-3 sm:px-4 py-5 sm:py-8 flex flex-col items-center animate-fadeIn select-none relative z-10">
       
       {/* Results Card */}
-      <div className="w-full pixel-wood-frame rounded p-6 sm:p-8 text-center shadow-2xl relative mb-6">
+      <div className="w-full pixel-wood-frame rounded p-4 sm:p-8 text-center shadow-2xl relative mb-5 sm:mb-6">
         
         {isFainted ? (
-          <div className="w-16 h-16 rounded-sm bg-[#571414] border-2 border-rose-500 flex items-center justify-center mx-auto mb-3 shadow-lg">
-            <Skull className="w-9 h-9 text-rose-300 animate-pulse" />
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-sm bg-[#571414] border-2 border-rose-500 flex items-center justify-center mx-auto mb-3 shadow-lg">
+            <Skull className="w-8 h-8 sm:w-9 sm:h-9 text-rose-300 animate-pulse" />
           </div>
         ) : (
-          <div className="w-16 h-16 rounded-sm bg-[#8a4b27] border-2 border-[#e6a86c] flex items-center justify-center mx-auto mb-3 shadow-lg">
-            <Trophy className="w-9 h-9 text-[#ffe27a]" />
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-sm bg-[#8a4b27] border-2 border-[#e6a86c] flex items-center justify-center mx-auto mb-3 shadow-lg">
+            <Trophy className="w-8 h-8 sm:w-9 sm:h-9 text-[#ffe27a]" />
           </div>
         )}
 
-        <div className="text-[10px] font-pixel-title text-[#d7974e] tracking-wider uppercase mb-1">
+        <div className="text-[9px] sm:text-[10px] font-pixel-title text-[#d7974e] tracking-wider uppercase mb-1">
           {isForever ? 'FOREVER RUN OVER' : 'MATCH COMPLETE'} • {theme.name}
         </div>
 
-        <h1 className="text-3xl sm:text-4xl font-pixel-title text-[#ffe599] tracking-tight mb-2">
+        <h1 className="text-xl min-[380px]:text-2xl sm:text-4xl font-pixel-title text-[#ffe599] tracking-tight mb-2 leading-snug">
           {isFainted ? 'OUT OF HP!' : 'RUN COMPLETE!'}
         </h1>
 
@@ -277,9 +279,9 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
         </p>
 
         {/* Big Score Plaque */}
-        <div className="inline-block px-8 py-3 bg-[#1c0d06] border-2 border-[#e8a34d] rounded-sm mb-6 shadow-inner">
+        <div className="inline-block max-w-full px-5 sm:px-8 py-3 bg-[#1c0d06] border-2 border-[#e8a34d] rounded-sm mb-5 sm:mb-6 shadow-inner">
           <div className="text-[10px] font-pixel-ui text-[#b88c60]">TOTAL SCORE</div>
-          <div className="font-pixel-title text-3xl sm:text-4xl text-[#fcd34d]">
+          <div className="font-pixel-title text-2xl sm:text-4xl text-[#fcd34d] whitespace-nowrap">
             🪙 {totalScore.toLocaleString()}
           </div>
           {isForever && (
@@ -290,10 +292,10 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
         </div>
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap items-center justify-center gap-3">
+        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-center gap-2.5 sm:gap-3">
           <button
             onClick={handleShare}
-            className="px-5 py-2.5 bg-[#2b170c] hover:bg-[#3d2314] border-2 border-[#8a4b27] text-white font-pixel-title text-xs rounded-sm pixel-btn cursor-pointer flex items-center gap-2"
+            className="px-5 py-3 sm:py-2.5 bg-[#2b170c] hover:bg-[#3d2314] border-2 border-[#8a4b27] text-white font-pixel-title text-xs rounded-sm pixel-btn cursor-pointer flex items-center justify-center gap-2"
           >
             {copied ? (
               <>
@@ -313,7 +315,7 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
               sounds.playClick();
               onPlayAgain();
             }}
-            className="px-8 py-2.5 bg-[#5c993d] hover:bg-[#6ab346] border-2 border-[#2b4c1a] text-white font-pixel-title text-xs rounded-sm pixel-btn cursor-pointer flex items-center gap-2 shadow-xl"
+            className="px-8 py-3 sm:py-2.5 bg-[#5c993d] hover:bg-[#6ab346] border-2 border-[#2b4c1a] text-white font-pixel-title text-xs rounded-sm pixel-btn cursor-pointer flex items-center justify-center gap-2 shadow-xl"
           >
             <RotateCcw className="w-4 h-4" />
             <span>{challenge ? 'REPLAY ROOM' : 'PLAY AGAIN'}</span>
@@ -324,7 +326,7 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
               sounds.playClick();
               onGoHome();
             }}
-            className="px-5 py-2.5 bg-[#2b170c] hover:bg-[#3d2314] border-2 border-[#8a4b27] text-[#ffe2a0] hover:text-white font-pixel-title text-xs rounded-sm pixel-btn cursor-pointer flex items-center gap-2"
+            className="px-5 py-3 sm:py-2.5 bg-[#2b170c] hover:bg-[#3d2314] border-2 border-[#8a4b27] text-[#ffe2a0] hover:text-white font-pixel-title text-xs rounded-sm pixel-btn cursor-pointer flex items-center justify-center gap-2"
           >
             <Home className="w-4 h-4 text-amber-300" />
             <span>MENU</span>
@@ -335,11 +337,11 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
 
       {/* Multi-Player Room Leaderboard Panel */}
       {challenge && mySummary && (
-        <div className="w-full pixel-wood-frame rounded p-5 sm:p-6 shadow-2xl mb-6 border-2 border-[#b4692c]">
+        <div className="w-full pixel-wood-frame rounded p-4 sm:p-6 shadow-2xl mb-5 sm:mb-6 border-2 border-[#b4692c]">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <div className="flex items-center gap-2">
-              <Swords className="w-5 h-5 text-amber-300" />
-              <h2 className="font-pixel-title text-sm text-[#ffe599]">
+            <div className="flex items-center gap-2 min-w-0">
+              <Swords className="w-5 h-5 text-amber-300 shrink-0" />
+              <h2 className="font-pixel-title text-xs sm:text-sm text-[#ffe599] break-words">
                 MULTIPLAYER LEADERBOARD • #{challenge.id}
               </h2>
             </div>
@@ -353,7 +355,7 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
             <>
               {/* Outcome Banner */}
               <div
-                className={`rounded p-3.5 mb-4 border-2 text-center ${
+                className={`rounded p-3 sm:p-3.5 mb-4 border-2 text-center ${
                   roomStanding.outcome === 'win'
                     ? 'bg-[#123d22] border-emerald-500 text-emerald-100'
                     : roomStanding.outcome === 'loss'
@@ -361,7 +363,7 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
                     : 'bg-[#3d2b0d] border-amber-400 text-amber-100'
                 }`}
               >
-                <div className="font-pixel-title text-sm sm:text-base mb-1">
+                <div className="font-pixel-title text-xs sm:text-base mb-1">
                   {roomStanding.headline}
                 </div>
                 <div className="font-pixel-body text-xs opacity-90">
@@ -377,23 +379,23 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
                   return (
                     <div
                       key={`${entry.playerId || entry.name}-${entry.finishedAt}-${idx}`}
-                      className={`flex items-center justify-between gap-3 px-3.5 py-2.5 rounded border-2 ${
+                      className={`flex items-center justify-between gap-2 sm:gap-3 px-3 sm:px-3.5 py-2.5 rounded border-2 ${
                         isMe
                           ? 'bg-[#2a1a09] border-[#fcd34d] shadow'
                           : 'bg-[#1b0d06] border-[#542813]'
                       }`}
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="font-pixel-title text-sm w-7 text-center shrink-0 text-amber-300">
+                      <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
+                        <span className="font-pixel-title text-xs sm:text-sm w-6 sm:w-7 text-center shrink-0 text-amber-300">
                           {medal}
                         </span>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-pixel-title text-xs text-[#ffe599] truncate">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-pixel-title text-[11px] sm:text-xs text-[#ffe599] truncate">
                               {entry.name}
                             </span>
                             {isMe && (
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-900/80 border border-emerald-500 text-[8px] font-pixel-title text-emerald-200">
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-900/80 border border-emerald-500 text-[8px] font-pixel-title text-emerald-200 shrink-0">
                                 YOU
                               </span>
                             )}
@@ -407,7 +409,7 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
                       </div>
 
                       <div className="text-right shrink-0">
-                        <div className="font-pixel-title text-sm sm:text-base text-[#fcd34d]">
+                        <div className="font-pixel-title text-xs sm:text-base text-[#fcd34d] whitespace-nowrap">
                           🪙 {entry.score.toLocaleString()}
                         </div>
                       </div>
@@ -417,9 +419,14 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
               </div>
 
               {/* Multi-Player Round-by-Round Table */}
-              <div className="bg-[#170a04] border border-[#542813] rounded p-3 mb-4 overflow-x-auto">
-                <div className="text-[9px] font-pixel-title text-[#ffe2a0] mb-2">
-                  ROUND-BY-ROUND COMPARISON
+              <div className="bg-[#170a04] border border-[#542813] rounded p-3 mb-4 max-w-full overflow-x-auto touch-pan-x">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="text-[9px] font-pixel-title text-[#ffe2a0]">
+                    ROUND-BY-ROUND COMPARISON
+                  </div>
+                  <div className="sm:hidden text-[9px] font-pixel-ui text-[#b88c60]">
+                    Swipe →
+                  </div>
                 </div>
                 <table className="w-full text-[11px] font-pixel-ui border-collapse">
                   <thead>
@@ -439,7 +446,7 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
                       const topRound = Math.max(...roundVals);
                       return (
                         <tr key={rIdx} className="border-b border-[#2b150a] last:border-b-0">
-                          <td className="py-1.5 pr-3 text-[#eed0ae] truncate max-w-[180px]">
+                          <td className="py-1.5 pr-3 text-[#eed0ae] truncate max-w-[140px] sm:max-w-[180px]">
                             <span className="text-amber-300 font-bold mr-1.5">R{rIdx + 1}</span>
                             {workTitle && <span className="opacity-80">{workTitle}</span>}
                           </td>
@@ -449,7 +456,7 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
                             return (
                               <td
                                 key={pIdx}
-                                className={`py-1.5 px-2 text-right font-mono text-[10px] ${
+                                className={`py-1.5 px-2 text-right font-mono text-[10px] whitespace-nowrap ${
                                   isBest ? 'text-emerald-300 font-bold' : 'text-stone-300'
                                 }`}
                               >
@@ -471,11 +478,11 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
           )}
 
           {/* Share & Merge Controls */}
-          <div className="flex flex-wrap items-center gap-2 mb-3">
+          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 mb-3">
             <button
               type="button"
               onClick={handleCopyResultLink}
-              className="px-3.5 py-2 bg-[#4a2611] hover:bg-[#5e3116] border-2 border-[#b4692c] text-[#ffe599] font-pixel-title text-[9px] rounded pixel-btn cursor-pointer flex items-center gap-1.5"
+              className="px-3.5 py-2.5 sm:py-2 bg-[#4a2611] hover:bg-[#5e3116] border-2 border-[#b4692c] text-[#ffe599] font-pixel-title text-[9px] rounded pixel-btn cursor-pointer flex items-center justify-center gap-1.5"
             >
               {copiedResultLink ? (
                 <>
@@ -495,7 +502,7 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
             <button
               type="button"
               onClick={handleCopyScoreCode}
-              className="px-3.5 py-2 bg-[#2b170c] hover:bg-[#3d2314] border-2 border-[#8a4b27] text-amber-200 font-pixel-title text-[9px] rounded pixel-btn cursor-pointer flex items-center gap-1.5"
+              className="px-3.5 py-2.5 sm:py-2 bg-[#2b170c] hover:bg-[#3d2314] border-2 border-[#8a4b27] text-amber-200 font-pixel-title text-[9px] rounded pixel-btn cursor-pointer flex items-center justify-center gap-1.5"
             >
               {copiedScoreCode ? (
                 <>
@@ -517,11 +524,11 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
               value={pasteInput}
               onChange={e => setPasteInput(e.target.value)}
               placeholder="Paste any friend's Result Link or Score Code"
-              className="flex-1 min-w-0 px-3 py-2 rounded bg-[#140903] border-2 border-[#542813] text-amber-100 placeholder-[#8c603a] font-pixel-body text-xs focus:outline-none focus:border-amber-400"
+              className="flex-1 min-w-0 px-3 py-2.5 sm:py-2 rounded bg-[#140903] border-2 border-[#542813] text-amber-100 placeholder-[#8c603a] font-pixel-body text-base sm:text-xs focus:outline-none focus:border-amber-400"
             />
             <button
               type="submit"
-              className="px-4 py-2 bg-[#5c993d] hover:bg-[#6ab346] border-2 border-[#2b4c1a] text-white font-pixel-title text-[9px] rounded pixel-btn cursor-pointer shrink-0"
+              className="px-4 py-2.5 sm:py-2 bg-[#5c993d] hover:bg-[#6ab346] border-2 border-[#2b4c1a] text-white font-pixel-title text-[9px] rounded pixel-btn cursor-pointer shrink-0"
             >
               ADD SCORE
             </button>
@@ -549,35 +556,36 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
           {results.map((res, idx) => (
             <div
               key={res.item.id}
-              className="pixel-wood-light p-3 rounded-sm flex flex-col sm:flex-row items-center justify-between gap-3 text-[#381a0b]"
+              className="pixel-wood-light p-3 rounded-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 text-[#381a0b]"
             >
-              <div className="flex items-center gap-3 w-full sm:w-auto">
+              <div className="flex items-center gap-3 w-full min-w-0 sm:flex-1">
                 <img
                   src={res.wikiThumbnail || res.item.image}
                   alt={res.item.title}
+                  decoding="async"
                   className="w-12 h-12 object-contain bg-black rounded-sm border border-[#522b13] shrink-0"
                 />
-                <div className="truncate">
+                <div className="min-w-0 flex-1">
                   <div className="text-[9px] font-pixel-title text-[#612f0e]">
                     Round {idx + 1} • {res.item.category === 'music' ? '🎵 MUSIC' : res.item.category === 'books' ? '📚 BOOKS' : '🎨 ART'}
                   </div>
-                  <div className="font-pixel-title text-xs text-[#2b1406] truncate max-w-xs">
+                  <div className="font-pixel-title text-xs text-[#2b1406] truncate">
                     {res.item.title}
                   </div>
-                  <div className="text-[11px] font-pixel-body text-[#472209]">
+                  <div className="text-[11px] font-pixel-body text-[#472209] truncate">
                     by {res.item.creator} ({res.item.year})
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between sm:justify-end gap-5 w-full sm:w-auto border-t sm:border-t-0 border-[#7e4720]/30 pt-2 sm:pt-0">
-                <div className="text-left sm:text-right text-[10px] font-pixel-ui text-[#54280b]">
+              <div className="flex items-center justify-between sm:justify-end gap-4 sm:gap-5 w-full sm:w-auto border-t sm:border-t-0 border-[#7e4720]/30 pt-2 sm:pt-0 shrink-0">
+                <div className="text-left sm:text-right text-[10px] font-pixel-ui text-[#54280b] min-w-0">
                   <div>Guessed: <strong>{res.guess.yearGuess}</strong> ({res.yearDelta === 0 ? 'Exact' : `${res.yearDelta}y off`})</div>
-                  <div className="truncate max-w-[150px]">"{res.guess.rawGuess || 'None'}"</div>
+                  <div className="truncate max-w-[180px] sm:max-w-[150px]">"{res.guess.rawGuess || 'None'}"</div>
                 </div>
 
-                <div className="text-right">
-                  <div className="font-pixel-title text-sm text-[#7a2007]">
+                <div className="text-right shrink-0">
+                  <div className="font-pixel-title text-sm text-[#7a2007] whitespace-nowrap">
                     +{res.totalPoints}
                   </div>
                 </div>

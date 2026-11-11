@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useSyncExternalStore } from 'react';
 import { Category } from '../types';
 
 interface PixelDecorationsProps {
@@ -151,7 +151,7 @@ interface PropWrapperProps {
 
 const FloatingProp: React.FC<PropWrapperProps> = ({ placement, children }) => (
   <div
-    className={`hidden md:block absolute z-0 pointer-events-none select-none ${placement.opacityClass}`}
+    className={`hidden lg:block absolute z-0 pointer-events-none select-none ${placement.opacityClass}`}
     style={{
       ...placement.posStyle,
       transform: `rotate(${placement.tiltDeg}deg) scale(${placement.scale})`,
@@ -169,13 +169,34 @@ const FloatingProp: React.FC<PropWrapperProps> = ({ placement, children }) => (
   </div>
 );
 
+function subscribeWideViewport(callback: () => void): () => void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return () => {};
+  }
+  const mq = window.matchMedia('(min-width: 1024px)');
+  mq.addEventListener('change', callback);
+  return () => mq.removeEventListener('change', callback);
+}
+
+function getWideViewportSnapshot(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(min-width: 1024px)').matches
+    : false;
+}
+
 export const PixelDecorations: React.FC<PixelDecorationsProps> = ({ category }) => {
   const [layouts] = useState<Record<Category, Record<string, PlacedProp>>>(createAllCategoryLayouts);
+  const showWideProps = useSyncExternalStore(
+    subscribeWideViewport,
+    getWideViewportSnapshot,
+    () => false
+  );
+
   const activeLayout = layouts[category];
 
-  const showMusic = category === 'music' || category === 'everything';
-  const showBooks = category === 'books' || category === 'everything';
-  const showArt = category === 'art' || category === 'everything';
+  const showMusic = showWideProps && (category === 'music' || category === 'everything');
+  const showBooks = showWideProps && (category === 'books' || category === 'everything');
+  const showArt = showWideProps && (category === 'art' || category === 'everything');
 
   return (
     <div className="fixed inset-0 pointer-events-none overflow-hidden z-0 select-none">
@@ -189,7 +210,7 @@ export const PixelDecorations: React.FC<PixelDecorationsProps> = ({ category }) 
               {Array.from({ length: 16 }).map((_, i) => (
                 <div
                   key={i}
-                  className="w-2 h-3 rounded-b-sm animate-pulse"
+                  className={`w-2 h-3 rounded-b-sm animate-pulse ${i % 2 === 1 ? 'hidden sm:block' : ''}`}
                   style={{
                     backgroundColor: ['#f43f5e', '#a855f7', '#06b6d4', '#eab308', '#ec4899'][i % 5],
                     animationDelay: `${i * 0.18}s`,
@@ -732,37 +753,37 @@ export const PixelDecorations: React.FC<PixelDecorationsProps> = ({ category }) 
       {/* ================= SUBTLE DRIFTING CULTURAL ICONS ================= */}
       {category === 'music' && (
         <>
-          <div className="absolute left-[12%] animate-drift text-2xl text-pink-400 opacity-60" style={{ animationDelay: '0s', animationDuration: '16s' }}>♪</div>
-          <div className="absolute left-[34%] animate-drift text-3xl text-cyan-300 opacity-60" style={{ animationDelay: '5s', animationDuration: '17s' }}>♫</div>
-          <div className="absolute left-[68%] animate-drift text-2xl text-purple-300 opacity-60" style={{ animationDelay: '2s', animationDuration: '15s' }}>♬</div>
-          <div className="absolute left-[88%] animate-drift text-xl text-amber-300 opacity-55" style={{ animationDelay: '8s', animationDuration: '19s' }}>♩</div>
+          <div className="absolute left-[12%] animate-drift text-2xl text-pink-400 opacity-50" style={{ animationDelay: '0s', animationDuration: '16s' }}>♪</div>
+          <div className="hidden sm:block absolute left-[34%] animate-drift text-3xl text-cyan-300 opacity-60" style={{ animationDelay: '5s', animationDuration: '17s' }}>♫</div>
+          <div className="hidden sm:block absolute left-[68%] animate-drift text-2xl text-purple-300 opacity-60" style={{ animationDelay: '2s', animationDuration: '15s' }}>♬</div>
+          <div className="absolute left-[84%] sm:left-[88%] animate-drift text-xl text-amber-300 opacity-50" style={{ animationDelay: '8s', animationDuration: '19s' }}>♩</div>
         </>
       )}
 
       {category === 'books' && (
         <>
-          <div className="absolute left-[18%] animate-drift text-2xl text-amber-200 opacity-60" style={{ animationDelay: '1s', animationDuration: '17s' }}>📜</div>
-          <div className="absolute left-[40%] animate-drift text-2xl opacity-65" style={{ animationDelay: '4s', animationDuration: '15s' }}>📖</div>
-          <div className="absolute left-[75%] animate-drift text-2xl opacity-60" style={{ animationDelay: '2s', animationDuration: '16s' }}>📚</div>
-          <div className="absolute left-[88%] animate-drift text-xl text-yellow-300 opacity-55" style={{ animationDelay: '7s', animationDuration: '18s' }}>✨</div>
+          <div className="absolute left-[14%] sm:left-[18%] animate-drift text-2xl text-amber-200 opacity-50" style={{ animationDelay: '1s', animationDuration: '17s' }}>📜</div>
+          <div className="hidden sm:block absolute left-[40%] animate-drift text-2xl opacity-65" style={{ animationDelay: '4s', animationDuration: '15s' }}>📖</div>
+          <div className="hidden sm:block absolute left-[75%] animate-drift text-2xl opacity-60" style={{ animationDelay: '2s', animationDuration: '16s' }}>📚</div>
+          <div className="absolute left-[84%] sm:left-[88%] animate-drift text-xl text-yellow-300 opacity-50" style={{ animationDelay: '7s', animationDuration: '18s' }}>✨</div>
         </>
       )}
 
       {category === 'art' && (
         <>
-          <div className="absolute left-[15%] animate-drift text-2xl text-rose-400 opacity-60" style={{ animationDelay: '0s', animationDuration: '15s' }}>🖌️</div>
-          <div className="absolute left-[38%] animate-drift text-2xl text-amber-300 opacity-65" style={{ animationDelay: '3s', animationDuration: '16s' }}>🎨</div>
-          <div className="absolute left-[65%] animate-drift text-xl text-sky-400 opacity-60" style={{ animationDelay: '1s', animationDuration: '14s' }}>💧</div>
-          <div className="absolute left-[85%] animate-drift text-xl text-emerald-400 opacity-55" style={{ animationDelay: '6s', animationDuration: '18s' }}>✨</div>
+          <div className="absolute left-[15%] animate-drift text-2xl text-rose-400 opacity-50" style={{ animationDelay: '0s', animationDuration: '15s' }}>🖌️</div>
+          <div className="hidden sm:block absolute left-[38%] animate-drift text-2xl text-amber-300 opacity-65" style={{ animationDelay: '3s', animationDuration: '16s' }}>🎨</div>
+          <div className="hidden sm:block absolute left-[65%] animate-drift text-xl text-sky-400 opacity-60" style={{ animationDelay: '1s', animationDuration: '14s' }}>💧</div>
+          <div className="absolute left-[84%] sm:left-[85%] animate-drift text-xl text-emerald-400 opacity-50" style={{ animationDelay: '6s', animationDuration: '18s' }}>✨</div>
         </>
       )}
 
       {category === 'everything' && (
         <>
-          <div className="absolute left-[14%] animate-drift text-2xl text-purple-300 opacity-60" style={{ animationDelay: '0s', animationDuration: '15s' }}>🎵</div>
-          <div className="absolute left-[38%] animate-drift text-2xl text-amber-200 opacity-60" style={{ animationDelay: '3s', animationDuration: '17s' }}>📚</div>
-          <div className="absolute left-[66%] animate-drift text-2xl text-yellow-300 opacity-60" style={{ animationDelay: '1.5s', animationDuration: '16s' }}>🎨</div>
-          <div className="absolute left-[86%] animate-drift text-xl text-emerald-300 opacity-60" style={{ animationDelay: '5s', animationDuration: '18s' }}>🎲</div>
+          <div className="absolute left-[14%] animate-drift text-2xl text-purple-300 opacity-50" style={{ animationDelay: '0s', animationDuration: '15s' }}>🎵</div>
+          <div className="hidden sm:block absolute left-[38%] animate-drift text-2xl text-amber-200 opacity-60" style={{ animationDelay: '3s', animationDuration: '17s' }}>📚</div>
+          <div className="hidden sm:block absolute left-[66%] animate-drift text-2xl text-yellow-300 opacity-60" style={{ animationDelay: '1.5s', animationDuration: '16s' }}>🎨</div>
+          <div className="absolute left-[84%] sm:left-[86%] animate-drift text-xl text-emerald-300 opacity-50" style={{ animationDelay: '5s', animationDuration: '18s' }}>🎲</div>
         </>
       )}
 

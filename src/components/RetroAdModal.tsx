@@ -104,102 +104,104 @@ export const RetroAdModal: React.FC<RetroAdModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-fadeIn select-none">
-      <div className={`relative max-w-lg w-full ${ad.themeBg} pixel-wood-frame rounded p-6 shadow-2xl flex flex-col`}>
-        
-        {/* Retro Commercial Header */}
-        <div className="flex items-center justify-between border-b-2 border-current/30 pb-3 mb-4">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl animate-bounce">{ad.icon}</span>
-            <div>
-              <div className="font-pixel-title text-[10px] tracking-wider text-amber-300">
-                COMMERCIAL BREAK
+    <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-black/90 sm:backdrop-blur-md animate-fadeIn select-none">
+      <div className="min-h-full flex items-center justify-center p-3 sm:p-4">
+        <div className={`relative max-w-lg w-full ${ad.themeBg} pixel-wood-frame rounded p-4 sm:p-6 my-auto shadow-2xl flex flex-col`}>
+          
+          {/* Retro Commercial Header */}
+          <div className="flex items-center justify-between gap-2 border-b-2 border-current/30 pb-3 mb-4">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-2xl animate-bounce shrink-0">{ad.icon}</span>
+              <div className="min-w-0">
+                <div className="font-pixel-title text-[10px] tracking-wider text-amber-300">
+                  COMMERCIAL BREAK
+                </div>
+                <div className="text-[9px] sm:text-[10px] opacity-75 font-pixel-ui truncate">
+                  SPONSORED BY {ad.sponsor}
+                </div>
               </div>
-              <div className="text-[10px] opacity-75 font-pixel-ui">
-                SPONSORED BY {ad.sponsor}
-              </div>
+            </div>
+
+            {/* Unskippable 30-Second Countdown */}
+            <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 bg-black/70 border border-amber-500/40 rounded font-pixel-title text-xs text-amber-400 shrink-0">
+              <Clock className="w-3.5 h-3.5 animate-spin" />
+              <span>{secondsRemaining > 0 ? `${secondsRemaining}s` : 'DONE!'}</span>
             </div>
           </div>
 
-          {/* Unskippable 30-Second Countdown */}
-          <div className="flex items-center gap-1.5 px-3 py-1 bg-black/70 border border-amber-500/40 rounded font-pixel-title text-xs text-amber-400">
-            <Clock className="w-3.5 h-3.5 animate-spin" />
-            <span>{secondsRemaining > 0 ? `${secondsRemaining}s` : 'DONE!'}</span>
+          {/* Ad Progress Bar */}
+          <div className="w-full bg-black/70 h-3 border border-white/20 rounded-sm mb-4 overflow-hidden">
+            <div 
+              className="h-full bg-gradient-to-r from-amber-500 via-rose-500 to-emerald-400 transition-all duration-1000"
+              style={{ width: `${progressPercent}%` }}
+            />
           </div>
-        </div>
 
-        {/* Ad Progress Bar */}
-        <div className="w-full bg-black/70 h-3 border border-white/20 rounded-sm mb-4 overflow-hidden">
-          <div 
-            className="h-full bg-gradient-to-r from-amber-500 via-rose-500 to-emerald-400 transition-all duration-1000"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-
-        {/* Ad Body Content */}
-        <div className="bg-black/50 border-2 border-current/20 p-4 rounded-sm mb-4">
-          <div className="font-pixel-title text-xs sm:text-sm text-amber-300 mb-1">
-            {ad.product}
-          </div>
-          <div className="text-[10px] font-pixel-ui text-amber-100/90 mb-2 italic">
-            "{ad.tagline}"
-          </div>
-          <p className="text-xs leading-relaxed font-pixel-body mb-2">
-            {ad.body}
-          </p>
-          <div className="text-[9px] opacity-50 font-mono">
-            * {ad.disclaimer}
-          </div>
-        </div>
-
-        {/* Paid Version Teaser (Unclickable Button requested in Note 1) */}
-        <div className="mb-4 p-2.5 bg-amber-950/40 border-2 border-dashed border-amber-600/60 rounded flex items-center justify-between opacity-80 cursor-not-allowed">
-          <div className="flex items-center gap-2">
-            <Crown className="w-4 h-4 text-amber-400 shrink-0" />
-            <div className="text-left">
-              <div className="font-pixel-title text-[9px] text-amber-300">
-                WhatchaWhen GOLD (Ad-Free)
-              </div>
-              <div className="text-[8px] font-pixel-ui text-amber-200/70">
-                Skip all 30s ads instantly forever
-              </div>
+          {/* Ad Body Content */}
+          <div className="bg-black/50 border-2 border-current/20 p-3.5 sm:p-4 rounded-sm mb-4">
+            <div className="font-pixel-title text-xs sm:text-sm text-amber-300 mb-1">
+              {ad.product}
+            </div>
+            <div className="text-[10px] font-pixel-ui text-amber-100/90 mb-2 italic">
+              "{ad.tagline}"
+            </div>
+            <p className="text-xs leading-relaxed font-pixel-body mb-2">
+              {ad.body}
+            </p>
+            <div className="text-[9px] opacity-50 font-mono">
+              * {ad.disclaimer}
             </div>
           </div>
 
-          <button
-            disabled
-            className="px-2.5 py-1 bg-amber-900/60 border border-amber-600/60 text-amber-300/80 font-pixel-ui text-[8px] rounded cursor-not-allowed flex items-center gap-1"
-          >
-            <Lock className="w-2.5 h-2.5" />
-            <span>COMING SOON</span>
-          </button>
-        </div>
+          {/* Paid Version Teaser (Unclickable Button requested in Note 1) */}
+          <div className="mb-4 p-2.5 bg-amber-950/40 border-2 border-dashed border-amber-600/60 rounded flex items-center justify-between flex-wrap gap-2 opacity-80 cursor-not-allowed">
+            <div className="flex items-center gap-2 min-w-0">
+              <Crown className="w-4 h-4 text-amber-400 shrink-0" />
+              <div className="text-left min-w-0">
+                <div className="font-pixel-title text-[9px] text-amber-300">
+                  WhatchaWhen GOLD (Ad-Free)
+                </div>
+                <div className="text-[8px] font-pixel-ui text-amber-200/70">
+                  Skip all 30s ads instantly forever
+                </div>
+              </div>
+            </div>
 
-        {/* Ad Actions: Unskippable until timer reaches 0 */}
-        <div className="flex items-center justify-between pt-1">
-          <button
-            onClick={onClose}
-            className="text-[10px] font-pixel-ui text-stone-400 hover:text-white underline cursor-pointer"
-          >
-            Cancel (No Hint)
-          </button>
-
-          {secondsRemaining === 0 ? (
             <button
-              onClick={handleClaim}
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 border-2 border-emerald-950 text-white font-pixel-title text-xs rounded pixel-btn shadow-lg animate-pulse cursor-pointer flex items-center gap-2"
+              disabled
+              className="px-2.5 py-1 bg-amber-900/60 border border-amber-600/60 text-amber-300/80 font-pixel-ui text-[8px] rounded cursor-not-allowed flex items-center gap-1 shrink-0"
             >
-              <Sparkles className="w-4 h-4" />
-              <span>CLAIM HINT FOR THIS ROUND!</span>
+              <Lock className="w-2.5 h-2.5" />
+              <span>COMING SOON</span>
             </button>
-          ) : (
-            <div className="flex items-center gap-1.5 px-3 py-2 bg-black/60 border border-stone-700 text-stone-400 font-pixel-ui text-[10px] rounded cursor-not-allowed">
-              <Lock className="w-3 h-3 text-amber-500" />
-              <span>Must watch full ad ({secondsRemaining}s remaining)</span>
-            </div>
-          )}
-        </div>
+          </div>
 
+          {/* Ad Actions: Unskippable until timer reaches 0 */}
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
+            <button
+              onClick={onClose}
+              className="py-1.5 text-[10px] font-pixel-ui text-stone-400 hover:text-white underline cursor-pointer text-center"
+            >
+              Cancel (No Hint)
+            </button>
+
+            {secondsRemaining === 0 ? (
+              <button
+                onClick={handleClaim}
+                className="px-5 py-3 sm:py-2.5 bg-emerald-600 hover:bg-emerald-500 border-2 border-emerald-950 text-white font-pixel-title text-xs rounded pixel-btn shadow-lg animate-pulse cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>CLAIM HINT FOR THIS ROUND!</span>
+              </button>
+            ) : (
+              <div className="flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-2 bg-black/60 border border-stone-700 text-stone-400 font-pixel-ui text-[10px] rounded cursor-not-allowed text-center">
+                <Lock className="w-3 h-3 text-amber-500 shrink-0" />
+                <span>Must watch full ad ({secondsRemaining}s remaining)</span>
+              </div>
+            )}
+          </div>
+
+        </div>
       </div>
     </div>
   );
