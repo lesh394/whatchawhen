@@ -1,0 +1,200 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-pixel-title: 'Press Start 2P', monospace;
+    --font-pixel-ui: 'Silkscreen', monospace;
+    --font-pixel-body: 'Silkscreen', 'Plus Jakarta Sans', monospace;
+  }
+
+  body {
+    font-family: var(--font-pixel-body);
+    image-rendering: pixelated;
+    background-color: #160e0a;
+    color: #ffebc4;
+    overflow-x: hidden;
+  }
+}
+
+.font-pixel-title {
+  font-family: var(--font-pixel-title);
+  letter-spacing: -0.5px;
+}
+
+.font-pixel-ui {
+  font-family: var(--font-pixel-ui);
+  letter-spacing: 0.2px;
+}
+
+.font-pixel-body {
+  font-family: var(--font-pixel-body);
+}
+
+/* Stardew Valley Wooden Panel Bevels */
+.pixel-wood-frame {
+  border: 4px solid #261106;
+  box-shadow: 
+    inset -4px -4px 0px 0px #5e3218, 
+    inset 4px 4px 0px 0px #be844e,
+    0 8px 16px rgba(0, 0, 0, 0.6);
+  background: #3e2212;
+}
+
+.pixel-wood-light {
+  border: 4px solid #331709;
+  box-shadow: 
+    inset -4px -4px 0px 0px #8b552d, 
+    inset 4px 4px 0px 0px #e6ba85;
+  background: #b5804c;
+}
+
+.pixel-parchment {
+  border: 4px solid #361a0b;
+  box-shadow: 
+    inset -3px -3px 0px 0px #a47648, 
+    inset 3px 3px 0px 0px #fff0d2;
+  background: #eed5ae;
+  color: #3b1d0d;
+}
+
+.pixel-inset {
+  border: 3px solid #1a0b04;
+  box-shadow: inset 3px 3px 0px 0px #120702, inset -2px -2px 0px 0px #4d2b17;
+  background: #251208;
+}
+
+/* 3D Indie Pixel Buttons */
+.pixel-btn {
+  border: 3px solid #1f0b03;
+  box-shadow: 0 4px 0 #1f0b03;
+  image-rendering: pixelated;
+  transition: transform 0.06s ease, box-shadow 0.06s ease;
+  user-select: none;
+}
+
+.pixel-btn:hover {
+  filter: brightness(1.1);
+}
+
+.pixel-btn:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #1f0b03;
+}
+
+.pixel-btn-danger {
+  background: #be2e2e;
+  border-color: #570f0f;
+  box-shadow: 0 4px 0 #570f0f;
+  color: #fff;
+}
+.pixel-btn-danger:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #570f0f;
+}
+
+/* Stardew Floating Animations */
+@keyframes float-gentle {
+  0%, 100% {
+    transform: translate3d(0px, 0px, 0px) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(6px, -13px, 0px) rotate(2.8deg);
+  }
+}
+
+.animate-float-gentle {
+  animation: float-gentle 4.5s ease-in-out infinite;
+}
+
+@keyframes float-sway {
+  0%, 100% {
+    transform: translate3d(0px, 0px, 0px) rotate(-1.5deg);
+  }
+  33% {
+    transform: translate3d(9px, -11px, 0px) rotate(2deg);
+  }
+  66% {
+    transform: translate3d(-7px, -5px, 0px) rotate(-0.8deg);
+  }
+}
+
+.animate-float-sway {
+  animation: float-sway 6.2s ease-in-out infinite;
+}
+
+@keyframes float-bob-alt {
+  0%, 100% {
+    transform: translate3d(0px, 0px, 0px) rotate(1.2deg);
+  }
+  45% {
+    transform: translate3d(-8px, -13px, 0px) rotate(-2.8deg);
+  }
+  75% {
+    transform: translate3d(6px, -4px, 0px) rotate(2.2deg);
+  }
+}
+
+.animate-float-bob-alt {
+  animation: float-bob-alt 5.4s ease-in-out infinite;
+}
+
+@keyframes float-drift {
+  0% {
+    transform: translateY(105vh) translateX(0px) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.8;
+  }
+  90% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-10vh) translateX(30px) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+.animate-drift {
+  animation: float-drift 14s linear infinite;
+}
+
+/* Pixel Heart Pulse */
+@keyframes heart-beat {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+.animate-heart-beat {
+  animation: heart-beat 1.2s ease-in-out infinite;
+}
+
+/* Screen Shake for Complete Blunders */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px) rotate(-1deg); }
+  40% { transform: translateX(8px) rotate(1deg); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
+}
+
+.animate-shake {
+  animation: shake 0.45s ease-in-out;
+}
+
+/* Custom Pixel Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #1e0e07;
+  border-left: 2px solid #361a0b;
+}
+::-webkit-scrollbar-thumb {
+  background: #7a4623;
+  border: 2px solid #a66a3d;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #995b30;
+}

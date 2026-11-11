@@ -1,0 +1,484 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { Category, GameMode, Difficulty, GamePhase, CulturalItem, RoundGuess, RoundResult } from './types';
+import { CATEGORY_THEMES } from './config/themes';
+import { CULTURAL_ITEMS } from './data/items';
+import { 
+  getNextLiveRoundItem,
+  getSeededChallengeRoundItem,
+  prewarmLiveQueues 
+} from './services/liveWikipediaEngine';
+import { getAllKnownItems } from './services/infinitePool';
+import { evaluateRound } from './services/scoring';
+import { fetchWikiSummary } from './services/wikipedia';
+import { sounds } from './services/sound';
+import {
+  MultiplayerChallenge,
+  MultiplayerScoreSummary,
+  generateChallengeId,
+  parseChallengeFromLocation,
+  buildChallengeUrl,
+  clearChallengeFromUrl,
+} from './services/multiplayer';
+import { Header } from './components/Header';
+import { HomeScreen } from './components/HomeScreen';
+import { GamePlayRound } from './components/GamePlayRound';
+import { RoundRevealModal } from './components/RoundRevealModal';
+import { GameOverScreen } from './components/GameOverScreen';
+import { HelpModal } from './components/HelpModal';
+import { MultiplayerModal } from './components/MultiplayerModal';
+import { PixelDecorations } from './components/PixelDecorations';
+
+export function App() {
+  const [initialInvite] = useState(() => parseChallengeFromLocation());
+
+  // Category & Difficulty & GameMode
+  const [category, setCategory] = useState<Category>(
+    () => initialInvite?.challenge.category ?? 'music'
+  );
+  const [difficulty, setDifficulty] = useState<Difficulty>(
+    () => initialInvite?.challenge.difficulty ?? 'normal'
+  );
+  const [gameMode, setGameMode] = useState<GameMode>(
+    () => initialInvite?.challenge.gameMode ?? 'classic'
+  );
+  const [gamePhase, setGamePhase] = useState<GamePhase>('home');
+
+  // 2P Challenge State
+  const [activeChallenge, setActiveChallenge] = useState<MultiplayerChallenge | null>(
+    () => initialInvite?.challenge ?? null
+  );
+  const [draftChallenge, setDraftChallenge] = useState<MultiplayerChallenge>(
+    () =>
+      initialInvite?.challenge ?? {
+        id: generateChallengeId(),
+        category: 'music',
+        difficulty: 'normal',
+        gameMode: 'classic',
+        hostName: 'Player 1',
+      }
+  );
+  const [challengeModal, setChallengeModal] = useState<{
+    isOpen: boolean;
+    mode: 'create' | 'join';
+  }>(() => ({
+    isOpen: Boolean(initialInvite),
+    mode: initialInvite ? 'join' : 'create',
+  }));
+  const [challengePlayerName, setChallengePlayerName] = useState<string>(() =>
+    initialInvite ? 'Player 2' : 'Player 1'
+  );
+  const [opponentResultFromUrl, setOpponentResultFromUrl] = useState<
+    MultiplayerScoreSummary | undefined
+  >(() => initialInvite?.opponentResult);
+  const [usedChallengeSlugs, setUsedChallengeSlugs] = useState<Set<string>>(new Set());
+
+  // Match State
+  const [roundItems, setRoundItems] = useState<CulturalItem[]>([]);
+  const [roundIndex, setRoundIndex] = useState<number>(0);
+  const [results, setResults] = useState<RoundResult[]>([]);
+  const [latestResult, setLatestResult] = useState<RoundResult | null>(null);
+  const [isLoadingLiveItem, setIsLoadingLiveItem] = useState<boolean>(false);
+
+  // Perfect Bullseye Streak Counter
+  const [streakMultiplier, setStreakMultiplier] = useState<number>(0);
+
+  // Anti-Recycle tracker: prevents the same options/items from repeating across games
+  const [seenItemIds, setSeenItemIds] = useState<Set<string>>(new Set());
+
+  // Hints: 1 hint token for the entire match/level by default
+  const [hintTokens, setHintTokens] = useState<number>(1);
+
+  // Forever Survival Mode State
+  const [currentHp, setCurrentHp] = useState<number>(100);
+
+  // Audio & Modals
+  const [isMuted, setIsMuted] = useState<boolean>(() => sounds.getMuted());
+  const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
+
+  // High Scores & Forever Streaks in localStorage
+  const [highScores, setHighScores] = useState<Record<Category, number>>(() => {
+    const defaults: Record<Category, number> = { music: 0, books: 0, art: 0, everything: 0 };
+    try {
+      const saved = localStorage.getItem('whatchawhen_highscores');
+      return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
+    } catch {
+      return defaults;
+    }
+  });
+
+  const [foreverStreaks, setForeverStreaks] = useState<Record<Category, number>>(() => {
+    const defaults: Record<Category, number> = { music: 0, books: 0, art: 0, everything: 0 };
+    try {
+      const saved = localStorage.getItem('whatchawhen_forever_streaks');
+      return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
+    } catch {
+      return defaults;
+    }
+  });
+
+  // Prewarm Wikipedia live queues on initial load
+  useEffect(() => {
+    prewarmLiveQueues();
+  }, []);
+
+  const totalRounds = gameMode === 'classic' ? 5 : 999;
+  const currentScore = results.reduce((sum, r) => sum + r.totalPoints, 0);
+  const theme = CATEGORY_THEMES[category];
+  const knownItems = useMemo(() => getAllKnownItems(), []);
+
+  // Start a new match (either Solo live Wikipedia OR 2P seeded Challenge)
+  const startMatch = async (
+    targetChallenge: MultiplayerChallenge | null,
+    overrideCategory?: Category
+  ) => {
+    const activeCat = targetChallenge
+      ? targetChallenge.category
+      : overrideCategory || category;
+
+    if (targetChallenge) {
+      setCategory(targetChallenge.category);
+      setDifficulty(targetChallenge.difficulty);
+      setGameMode(targetChallenge.gameMode);
+      setActiveChallenge(targetChallenge);
+      if (typeof window !== 'undefined' && window.history?.replaceState) {
+        window.history.replaceState({}, '', buildChallengeUrl(targetChallenge));
+      }
+    } else {
+      if (overrideCategory) setCategory(overrideCategory);
+      setActiveChallenge(null);
+      setOpponentResultFromUrl(undefined);
+      setUsedChallengeSlugs(new Set());
+      clearChallengeFromUrl();
+    }
+
+    setIsLoadingLiveItem(true);
+    try {
+      let firstItem: CulturalItem;
+      if (targetChallenge) {
+        const freshSlugs = new Set<string>();
+        firstItem = await getSeededChallengeRoundItem(
+          targetChallenge.category,
+          targetChallenge.id,
+          0,
+          freshSlugs
+        );
+        freshSlugs.add(firstItem.wikiSlug);
+        setUsedChallengeSlugs(freshSlugs);
+      } else {
+        firstItem = await getNextLiveRoundItem(activeCat, seenItemIds);
+        const newSeen = new Set(seenItemIds);
+        newSeen.add(firstItem.id);
+        newSeen.add(firstItem.wikiSlug);
+        setSeenItemIds(newSeen);
+      }
+
+      setRoundItems([firstItem]);
+      setRoundIndex(0);
+      setResults([]);
+      setLatestResult(null);
+      setCurrentHp(100);
+      setHintTokens(1);
+      setStreakMultiplier(0);
+      setGamePhase('playing');
+    } finally {
+      setIsLoadingLiveItem(false);
+    }
+  };
+
+  const handleOpenMultiplayer = () => {
+    setOpponentResultFromUrl(undefined);
+    const freshHostName = challengePlayerName.trim() || 'Player 1';
+    setChallengePlayerName(freshHostName);
+    setDraftChallenge({
+      id: generateChallengeId(),
+      category,
+      difficulty,
+      gameMode,
+      hostName: freshHostName,
+    });
+    setChallengeModal({ isOpen: true, mode: 'create' });
+  };
+
+  const handleStartFromChallengeModal = () => {
+    const cleanName =
+      challengePlayerName.trim() ||
+      (challengeModal.mode === 'join' ? 'Player 2' : 'Player 1');
+    setChallengePlayerName(cleanName);
+
+    const resolvedChallenge: MultiplayerChallenge =
+      challengeModal.mode === 'create'
+        ? { ...draftChallenge, hostName: cleanName }
+        : draftChallenge;
+
+    setChallengeModal(prev => ({ ...prev, isOpen: false }));
+    startMatch(resolvedChallenge);
+  };
+
+  const handleDismissChallenge = () => {
+    setActiveChallenge(null);
+    setOpponentResultFromUrl(undefined);
+    setUsedChallengeSlugs(new Set());
+    clearChallengeFromUrl();
+    setChallengeModal(prev => ({ ...prev, isOpen: false }));
+  };
+
+  const handleGoHome = () => {
+    setActiveChallenge(null);
+    setOpponentResultFromUrl(undefined);
+    setUsedChallengeSlugs(new Set());
+    clearChallengeFromUrl();
+    setGamePhase('home');
+  };
+
+  const handleUseHint = () => {
+    setHintTokens(prev => Math.max(0, prev - 1));
+  };
+
+  // Submit Guess using TimeGuessr difficulty-scaled scoring
+  const handleSubmitGuess = async (guess: RoundGuess) => {
+    const currentItem = roundItems[roundIndex % roundItems.length];
+    if (!currentItem) return;
+
+    // Evaluate score & damage with difficulty harshness profile
+    const evaluated = evaluateRound(currentItem, guess, currentHp, streakMultiplier, difficulty);
+
+    let wikiExtract = currentItem.wikiExtract;
+    let wikiUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(currentItem.wikiSlug)}`;
+    let wikiThumbnail = currentItem.image;
+
+    try {
+      const summary = await fetchWikiSummary(currentItem.wikiSlug);
+      if (summary) {
+        if (summary.extract) wikiExtract = summary.extract;
+        if (summary.url) wikiUrl = summary.url;
+        if (summary.thumbnail && !currentItem.altCoverApplied) wikiThumbnail = summary.thumbnail;
+      }
+    } catch {}
+
+    const roundRes: RoundResult = {
+      ...evaluated,
+      wikiExtract,
+      wikiUrl,
+      wikiThumbnail,
+    };
+
+    if (gameMode === 'forever' && evaluated.remainingHp !== undefined) {
+      setCurrentHp(evaluated.remainingHp);
+    }
+
+    // Update streak multiplier for the next round
+    setStreakMultiplier(evaluated.newStreak);
+
+    setLatestResult(roundRes);
+    setResults(prev => [...prev, roundRes]);
+    setGamePhase('revealing');
+  };
+
+  // Next Round / Game Over
+  const handleNextRound = async () => {
+    setLatestResult(null);
+
+    // Check if player died in Forever Mode
+    if (gameMode === 'forever' && currentHp <= 0) {
+      const survivedRounds = results.length;
+      if (survivedRounds > (foreverStreaks[category] || 0)) {
+        const updated = { ...foreverStreaks, [category]: survivedRounds };
+        setForeverStreaks(updated);
+        try {
+          localStorage.setItem('whatchawhen_forever_streaks', JSON.stringify(updated));
+        } catch {}
+      }
+      setGamePhase('gameover');
+      return;
+    }
+
+    // Check if Classic Mode finished (5 rounds)
+    if (gameMode === 'classic' && roundIndex >= 4) {
+      const finalScore = results.reduce((sum, r) => sum + r.totalPoints, 0);
+      if (finalScore > (highScores[category] || 0)) {
+        const updated = { ...highScores, [category]: finalScore };
+        setHighScores(updated);
+        try {
+          localStorage.setItem('whatchawhen_highscores', JSON.stringify(updated));
+        } catch {}
+      }
+      setGamePhase('gameover');
+      return;
+    }
+
+    // Next round index
+    const nextIndex = roundIndex + 1;
+
+    // Fetch the next round item if not already buffered
+    if (nextIndex >= roundItems.length) {
+      setIsLoadingLiveItem(true);
+      try {
+        if (activeChallenge) {
+          const nextItem = await getSeededChallengeRoundItem(
+            activeChallenge.category,
+            activeChallenge.id,
+            nextIndex,
+            usedChallengeSlugs
+          );
+          const nextSlugs = new Set(usedChallengeSlugs);
+          nextSlugs.add(nextItem.wikiSlug);
+          setUsedChallengeSlugs(nextSlugs);
+          setRoundItems(prev => [...prev, nextItem]);
+        } else {
+          const nextItem = await getNextLiveRoundItem(category, seenItemIds);
+          const newSeen = new Set(seenItemIds);
+          newSeen.add(nextItem.id);
+          newSeen.add(nextItem.wikiSlug);
+          setSeenItemIds(newSeen);
+          setRoundItems(prev => [...prev, nextItem]);
+        }
+      } finally {
+        setIsLoadingLiveItem(false);
+      }
+    }
+
+    setRoundIndex(nextIndex);
+    setGamePhase('playing');
+  };
+
+  const handleToggleMute = () => {
+    const state = sounds.toggleMute();
+    setIsMuted(state);
+  };
+
+  return (
+    <div 
+      className={`min-h-screen flex flex-col relative transition-colors duration-500 bg-gradient-to-b ${theme.bgTexture} text-[#ffebc4]`}
+    >
+      {/* 2D Pixel Animated Background Characters & Floating Symbols */}
+      <PixelDecorations category={category} />
+
+      {/* Top Header */}
+      <Header
+        gamePhase={gamePhase}
+        roundIndex={roundIndex}
+        totalRounds={totalRounds}
+        currentScore={currentScore}
+        gameMode={gameMode}
+        difficulty={difficulty}
+        currentHp={currentHp}
+        streakMultiplier={streakMultiplier}
+        onGoHome={handleGoHome}
+        onOpenHelp={() => setIsHelpOpen(true)}
+        isMuted={isMuted}
+        onToggleMute={handleToggleMute}
+      />
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col justify-center relative z-10">
+        {gamePhase === 'home' && (
+          <HomeScreen
+            selectedCategory={category}
+            onSelectCategory={setCategory}
+            gameMode={gameMode}
+            onSelectMode={setGameMode}
+            difficulty={difficulty}
+            onSelectDifficulty={setDifficulty}
+            onStartGame={() => startMatch(null)}
+            onOpenMultiplayer={handleOpenMultiplayer}
+            onOpenHelp={() => setIsHelpOpen(true)}
+            highScores={highScores}
+            foreverStreaks={foreverStreaks}
+          />
+        )}
+
+        {gamePhase === 'playing' && roundItems[roundIndex % roundItems.length] && (
+          <GamePlayRound
+            key={`${roundItems[roundIndex % roundItems.length].id}-${roundIndex}-${difficulty}`}
+            item={roundItems[roundIndex % roundItems.length]}
+            gameCategory={category}
+            difficulty={difficulty}
+            hintTokens={hintTokens}
+            onUseHint={handleUseHint}
+            onSubmitGuess={handleSubmitGuess}
+            allItems={activeChallenge ? CULTURAL_ITEMS : knownItems}
+            challenge={activeChallenge}
+            roundIndex={roundIndex}
+          />
+        )}
+
+        {gamePhase === 'revealing' && latestResult && (
+          <RoundRevealModal
+            result={latestResult}
+            roundNumber={roundIndex + 1}
+            totalRounds={totalRounds}
+            isLastRound={gameMode === 'classic' && roundIndex >= 4}
+            gameMode={gameMode}
+            onNextRound={handleNextRound}
+          />
+        )}
+
+        {gamePhase === 'gameover' && (
+          <GameOverScreen
+            category={category}
+            gameMode={gameMode}
+            difficulty={difficulty}
+            results={results}
+            finalHp={currentHp}
+            onPlayAgain={() => startMatch(activeChallenge)}
+            onGoHome={handleGoHome}
+            challenge={activeChallenge}
+            playerName={challengePlayerName}
+            initialOpponentResult={opponentResultFromUrl}
+          />
+        )}
+        {/* Live Wikipedia Fetching Modal Overlay */}
+        {isLoadingLiveItem && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
+            <div className="pixel-wood-frame p-6 max-w-sm w-full text-center rounded shadow-2xl">
+              <div className="text-4xl mb-3 animate-spin duration-1000">⏳</div>
+              <h3 className="font-pixel-title text-sm text-[#fcd34d] mb-1">
+                PULLING NEXT COVER...
+              </h3>
+              <p className="font-pixel-ui text-[11px] text-[#eed0ae] mb-3">
+                Grabbing a fresh random pick from Wikipedia archives.
+              </p>
+              <div className="w-full bg-[#1b0d06] rounded-full h-2 border border-[#804a23] overflow-hidden">
+                <div className="bg-[#4ade80] h-full w-2/3 animate-pulse"></div>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Minimalist Footer */}
+      <footer className="w-full border-t-2 border-[#432313] bg-[#1a0c06] py-2 px-4 text-center text-[10px] font-pixel-ui text-[#b88c60] flex items-center justify-center relative z-10 select-none">
+        <span>Built indie • Data via Wikipedia</span>
+      </footer>
+
+      {/* Help Modal */}
+      <HelpModal
+        isOpen={isHelpOpen}
+        onClose={() => setIsHelpOpen(false)}
+      />
+
+      {/* 2P Multiplayer Challenge Modal */}
+      <MultiplayerModal
+        isOpen={challengeModal.isOpen}
+        mode={challengeModal.mode}
+        challenge={draftChallenge}
+        playerName={challengePlayerName}
+        onChangePlayerName={name => {
+          setChallengePlayerName(name);
+          if (challengeModal.mode === 'create') {
+            setDraftChallenge(prev => ({
+              ...prev,
+              hostName: name.trim() || 'Player 1',
+            }));
+          }
+        }}
+        opponentResult={opponentResultFromUrl}
+        onStartChallenge={handleStartFromChallengeModal}
+        onDismissChallenge={handleDismissChallenge}
+        onClose={() => setChallengeModal(prev => ({ ...prev, isOpen: false }))}
+      />
+    </div>
+  );
+}
+
+export default App;
