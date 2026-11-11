@@ -1,8 +1,17 @@
-import { Category, WorkCategory, CulturalItem, GameMode } from '../types';
+import { Category, WorkCategory, CulturalItem, GameMode, EasyDistractorMetadata } from '../types';
 import { CULTURAL_ITEMS } from '../data/items';
 import { resolveSafeBookCoverItem } from './bookCoverResolver';
 import { resolveSafeMusicCoverItem } from './musicCoverResolver';
-import { getBroadEraLabel, sanitizeWikiGenre, sanitizeWikiHint } from './choices';
+import {
+  getBroadEraLabel,
+  sanitizeWikiGenre,
+  sanitizeWikiHint,
+  toEasyOptionKey,
+  EasyDistractorSource,
+  MUSIC_DISTRACTORS,
+  BOOKS_DISTRACTORS,
+  ART_DISTRACTORS,
+} from './choices';
 import {
   LockedDistractorEntry,
   LockedRoundEntry,
@@ -138,8 +147,52 @@ const inflightQueueRefills: Partial<Record<WorkCategory, Promise<void>>> = {};
 const seenSlugsSession = new Set<string>();
 const seenPageIdsSession = new Set<number>();
 const seenWorkKeysSession = new Set<string>();
-const persistedSeenRing: Array<{ s?: string; k?: string; p?: number }> = [];
+const seenImageKeysSession = new Set<string>();
+const persistedSeenRing: Array<{ s?: string; k?: string; p?: number; m?: string }> = [];
 let seenStorageHydrated = false;
+
+export type SeenWorkCandidate = {
+  id?: string;
+  category: WorkCategory;
+  title: string;
+  creator: string;
+  wikiSlug?: string;
+  slug?: string;
+  wikiPageId?: number;
+  pageId?: number;
+  image?: string;
+  highResImage?: string;
+};
+
+export function extractNormalizedImageKey(url?: string): string {
+  if (!url || typeof url !== 'string') return '';
+  const clean = url.trim().split('?')[0];
+  const wmMatch = clean.match(
+    /^https?:\/\/(?:upload|thumb)\.wikimedia\.org\/wikipedia\/(?:commons|en)\/(?:thumb\/[0-9a-f]+\/[0-9a-f]+\/([^/]+)\/[^/]+|[0-9a-f]+\/[0-9a-f]+\/([^/]+))$/i
+  );
+  const rawFile = wmMatch ? wmMatch[1] || wmMatch[2] : '';
+  if (!rawFile) return '';
+  let decoded = rawFile;
+  try {
+    decoded = decodeURIComponent(rawFile);
+  } catch {
+    // Keep raw filename segment if decoding fails
+  }
+  const norm = decoded
+    .replace(/\.[a-z0-9]{2,5}$/i, '')
+    .replace(/[_\s]+/g, ' ')
+    .trim()
+    .toLowerCase();
+  if (
+    norm.length < 8 ||
+    /^(?:cover|folder|front|artwork|album|book ?cover|image|photo|portrait|untitled|poster|default|placeholder|no ?cover|unknown)$/.test(
+      norm
+    )
+  ) {
+    return '';
+  }
+  return `wm:${norm}`;
+}
 
 function normalizeWorkPart(raw: string): string {
   return (raw || '')
@@ -184,16 +237,19 @@ function hydrateSeenStorage() {
       const slug = typeof entry.s === 'string' ? entry.s : '';
       const key = typeof entry.k === 'string' ? entry.k : '';
       const pageId = typeof entry.p === 'number' && entry.p > 0 ? entry.p : 0;
+      const imgKey = typeof entry.m === 'string' ? entry.m : '';
       if (slug) {
         seenSlugsSession.add(slug);
         seenSlugsSession.add(slug.toLowerCase());
       }
       if (key) seenWorkKeysSession.add(key);
       if (pageId > 0) seenPageIdsSession.add(pageId);
+      if (imgKey) seenImageKeysSession.add(imgKey);
       persistedSeenRing.push({
         ...(slug ? { s: slug } : {}),
         ...(key ? { k: key } : {}),
         ...(pageId > 0 ? { p: pageId } : {}),
+        ...(imgKey ? { m: imgKey } : {}),
       });
     }
   } catch {
@@ -202,39 +258,57 @@ function hydrateSeenStorage() {
 }
 
 export function isWorkSeen(
-  item: Pick<CulturalItem, 'id' | 'category' | 'title' | 'creator' | 'wikiSlug' | 'wikiPageId'>,
+  item: SeenWorkCandidate,
   extraSeenIds?: ReadonlySet<string>
 ): boolean {
   hydrateSeenStorage();
-  const slug = (item.wikiSlug || '').trim();
+  const slug = (item.wikiSlug || item.slug || '').trim();
   const slugLower = slug.toLowerCase();
+  const pageId = item.wikiPageId ?? item.pageId;
   const workKey = toCanonicalWorkKey(item.category, item.title, item.creator);
+  const imgKey = extractNormalizedImageKey(item.image || item.highResImage);
 
   if (slug && (seenSlugsSession.has(slug) || seenSlugsSession.has(slugLower))) return true;
-  if (item.wikiPageId && seenPageIdsSession.has(item.wikiPageId)) return true;
+  if (pageId && seenPageIdsSession.has(pageId)) return true;
   if (workKey && seenWorkKeysSession.has(workKey)) return true;
+  if (imgKey && seenImageKeysSession.has(imgKey)) return true;
 
   if (extraSeenIds) {
-    if (extraSeenIds.has(item.id)) return true;
+    if (item.id && extraSeenIds.has(item.id)) return true;
     if (slug && (extraSeenIds.has(slug) || extraSeenIds.has(slugLower))) return true;
     if (workKey && extraSeenIds.has(workKey)) return true;
-    if (item.wikiPageId && extraSeenIds.has(`pid:${item.wikiPageId}`)) return true;
+    if (pageId && extraSeenIds.has(`pid:${pageId}`)) return true;
+    if (imgKey && extraSeenIds.has(imgKey)) return true;
   }
   return false;
 }
 
-export function recordSeenWork(
-  item: Pick<CulturalItem, 'id' | 'category' | 'title' | 'creator' | 'wikiSlug' | 'wikiPageId'>
-): void {
+export function checkLiveDistractorSeen(entry: EasyDistractorSource): boolean {
+  if (!entry.category) return false;
+  return isWorkSeen({
+    id: entry.id,
+    category: entry.category,
+    title: entry.title,
+    creator: entry.creator,
+    wikiSlug: entry.slug || entry.wikiSlug,
+    wikiPageId: entry.pageId ?? entry.wikiPageId,
+    image: entry.image,
+  });
+}
+
+export function recordSeenWork(item: SeenWorkCandidate): void {
   hydrateSeenStorage();
-  const slug = (item.wikiSlug || '').trim();
+  const slug = (item.wikiSlug || item.slug || '').trim();
   const slugLower = slug.toLowerCase();
+  const pageId = item.wikiPageId ?? item.pageId;
   const workKey = toCanonicalWorkKey(item.category, item.title, item.creator);
+  const imgKey = extractNormalizedImageKey(item.image || item.highResImage);
 
   const alreadyRecorded =
     (!slug || seenSlugsSession.has(slugLower)) &&
     seenWorkKeysSession.has(workKey) &&
-    (!item.wikiPageId || seenPageIdsSession.has(item.wikiPageId));
+    (!pageId || seenPageIdsSession.has(pageId)) &&
+    (!imgKey || seenImageKeysSession.has(imgKey));
 
   if (slug) {
     seenSlugsSession.add(slug);
@@ -243,15 +317,19 @@ export function recordSeenWork(
   if (workKey) {
     seenWorkKeysSession.add(workKey);
   }
-  if (item.wikiPageId && item.wikiPageId > 0) {
-    seenPageIdsSession.add(item.wikiPageId);
+  if (pageId && pageId > 0) {
+    seenPageIdsSession.add(pageId);
+  }
+  if (imgKey) {
+    seenImageKeysSession.add(imgKey);
   }
 
   if (!alreadyRecorded) {
     persistedSeenRing.push({
       ...(slug ? { s: slug } : {}),
       ...(workKey ? { k: workKey } : {}),
-      ...(item.wikiPageId && item.wikiPageId > 0 ? { p: item.wikiPageId } : {}),
+      ...(pageId && pageId > 0 ? { p: pageId } : {}),
+      ...(imgKey ? { m: imgKey } : {}),
     });
     if (persistedSeenRing.length > MAX_PERSISTED_SEEN_ENTRIES) {
       persistedSeenRing.splice(0, persistedSeenRing.length - MAX_PERSISTED_SEEN_ENTRIES);
@@ -722,12 +800,24 @@ function shuffleInPlace<T>(arr: T[]): T[] {
   return arr;
 }
 
+const MAX_DISTRACTOR_BANK_SIZE = 450;
+
 function pushToDistractorBank(item: CulturalItem) {
   const bank = liveDistractorBank[item.category];
-  if (bank.some(existing => existing.wikiSlug === item.wikiSlug)) return;
+  const itemWorkKey = toCanonicalWorkKey(item.category, item.title, item.creator);
+  if (
+    bank.some(
+      existing =>
+        existing.wikiSlug === item.wikiSlug ||
+        toCanonicalWorkKey(existing.category, existing.title, existing.creator) === itemWorkKey
+    )
+  ) {
+    return;
+  }
   bank.push(item);
-  if (bank.length > 160) {
-    bank.shift();
+  if (bank.length > MAX_DISTRACTOR_BANK_SIZE) {
+    const seenIdx = bank.findIndex(existing => isWorkSeen(existing));
+    bank.splice(seenIdx >= 0 ? seenIdx : 0, 1);
   }
 }
 
@@ -744,6 +834,17 @@ export function getLivePoolDistractors(category: Category): CulturalItem[] {
     ];
   }
   return [...liveDistractorBank[category]];
+}
+
+export function getQueuedLiveOptionKeys(category: Category): Set<string> {
+  const cats = category === 'everything' ? WORK_CATEGORIES : [category];
+  const keys = new Set<string>();
+  for (const cat of cats) {
+    for (const item of liveQueue[cat]) {
+      keys.add(toEasyOptionKey(item.title, item.creator));
+    }
+  }
+  return keys;
 }
 
 // ---------------- SOLO QUEUE & PREWARM ----------------
@@ -783,6 +884,11 @@ export async function refillLiveQueue(
     const queuedWorkKeys = new Set(
       liveQueue[category].map(it => toCanonicalWorkKey(it.category, it.title, it.creator))
     );
+    const queuedImgKeys = new Set(
+      liveQueue[category]
+        .map(it => extractNormalizedImageKey(it.image || it.highResImage))
+        .filter(Boolean)
+    );
     const queuedCreators = new Set(
       liveQueue[category].map(it => it.creator.trim().toLowerCase())
     );
@@ -796,7 +902,13 @@ export async function refillLiveQueue(
         batch.filter(it => {
           const slugLower = it.wikiSlug.toLowerCase();
           const workKey = toCanonicalWorkKey(it.category, it.title, it.creator);
-          return !queuedSlugs.has(slugLower) && !queuedWorkKeys.has(workKey) && !isWorkSeen(it, extraSeenIds);
+          const imgKey = extractNormalizedImageKey(it.image || it.highResImage);
+          return (
+            !queuedSlugs.has(slugLower) &&
+            !queuedWorkKeys.has(workKey) &&
+            (!imgKey || !queuedImgKeys.has(imgKey)) &&
+            !isWorkSeen(it, extraSeenIds)
+          );
         })
       );
 
@@ -818,8 +930,10 @@ export async function refillLiveQueue(
         if (addedFromBatch >= MAX_QUEUE_ADD_PER_BATCH) break;
         const slugLower = item.wikiSlug.toLowerCase();
         const workKey = toCanonicalWorkKey(item.category, item.title, item.creator);
+        const imgKey = extractNormalizedImageKey(item.image || item.highResImage);
         queuedSlugs.add(slugLower);
         queuedWorkKeys.add(workKey);
+        if (imgKey) queuedImgKeys.add(imgKey);
         queuedCreators.add(item.creator.trim().toLowerCase());
         liveQueue[category].push(item);
         addedFromBatch++;
@@ -846,9 +960,9 @@ export async function fetchLiveRandomItem(
 ): Promise<CulturalItem | null> {
   hydrateSeenStorage();
   const concreteCategory = pickConcreteCategory(category);
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const forceNoPrefix = attempt >= 9;
-    const prefixMode = attempt >= 6 ? 'letter' : 'auto';
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const forceNoPrefix = attempt >= 11;
+    const prefixMode = attempt >= 7 ? 'letter' : 'auto';
     const batch = await fetchLiveBatch(concreteCategory, Math.random, forceNoPrefix, attempt >= 1, prefixMode);
     const eligible = batch.filter(it => !isWorkSeen(it, seenSlugs));
     if (eligible.length > 0) {
@@ -863,17 +977,83 @@ export async function fetchLiveRandomItem(
   return null;
 }
 
+export interface LiveRoundFetchOptions {
+  minUnusedDistractors?: number;
+  usedDistractorKeys?: ReadonlySet<string>;
+}
+
+function countUnusedLiveDistractors(
+  cat: WorkCategory,
+  seenSlugs: ReadonlySet<string>,
+  usedDistractorKeys?: ReadonlySet<string>,
+  excludeTargetKey?: string,
+  excludeTargetCreator?: string
+): { count: number; distinctCreators: number } {
+  const queuedKeys = new Set(
+    liveQueue[cat].map(it => toEasyOptionKey(it.title, it.creator))
+  );
+  const targetCreatorLower = (excludeTargetCreator || '').trim().toLowerCase();
+  const seenOptKeys = new Set<string>();
+  const creators = new Set<string>();
+
+  for (const it of liveDistractorBank[cat]) {
+    if (isWorkSeen(it, seenSlugs)) continue;
+    const optKey = toEasyOptionKey(it.title, it.creator);
+    if (excludeTargetKey && optKey === excludeTargetKey) continue;
+    if (queuedKeys.has(optKey)) continue;
+    if (usedDistractorKeys?.has(optKey)) continue;
+    if (!seenOptKeys.has(optKey)) {
+      seenOptKeys.add(optKey);
+      const cLower = it.creator.trim().toLowerCase();
+      if (cLower !== targetCreatorLower && isMeaningfulCreator(it.creator)) {
+        creators.add(cLower);
+      }
+    }
+  }
+  return { count: seenOptKeys.size, distinctCreators: creators.size };
+}
+
+async function ensureUnusedLiveDistractors(
+  cat: WorkCategory,
+  seenSlugs: ReadonlySet<string>,
+  minUnused: number,
+  usedDistractorKeys?: ReadonlySet<string>,
+  excludeTargetKey?: string,
+  excludeTargetCreator?: string
+): Promise<void> {
+  for (let attempt = 0; attempt < 7; attempt++) {
+    const stats = countUnusedLiveDistractors(
+      cat,
+      seenSlugs,
+      usedDistractorKeys,
+      excludeTargetKey,
+      excludeTargetCreator
+    );
+    if (stats.count >= minUnused && stats.distinctCreators >= 4) return;
+    await fetchLiveBatch(
+      cat,
+      Math.random,
+      attempt >= 5,
+      true,
+      attempt >= 3 ? 'letter' : 'auto',
+      true
+    );
+  }
+}
+
 /**
  * Returns the next Solo live round item.
- * Ensures both the live queue AND a large diverse live distractor bank (>= 10 distinct creators, >= 20 works)
- * are stocked BEFORE returning Round 1 so Easy choices never repeat or fall back to stored lists.
+ * Ensures both the live queue AND enough unused, non-queued, diverse live distractors
+ * are stocked BEFORE returning each round so Easy choices never repeat or fall back to stored lists.
  */
 export async function getNextLiveRoundItem(
   category: Category,
-  seenSlugs: Set<string> = new Set()
+  seenSlugs: Set<string> = new Set(),
+  options?: LiveRoundFetchOptions
 ): Promise<CulturalItem> {
   hydrateSeenStorage();
   const concreteCategory = pickConcreteCategory(category);
+  const minUnusedTarget = options?.minUnusedDistractors ?? 0;
 
   liveQueue[concreteCategory] = liveQueue[concreteCategory].filter(
     it => !isWorkSeen(it, seenSlugs)
@@ -887,6 +1067,9 @@ export async function getNextLiveRoundItem(
     await refillLiveQueue(concreteCategory, 6, 10, 20, seenSlugs);
   }
 
+  let resolved: CulturalItem | null = null;
+  let shouldPrewarmBackground = false;
+
   while (liveQueue[concreteCategory].length > 0) {
     const fetched = liveQueue[concreteCategory].shift()!;
     if (!isWorkSeen(fetched, seenSlugs)) {
@@ -896,44 +1079,70 @@ export async function getNextLiveRoundItem(
         liveDistractorBank[concreteCategory].length < 26 ||
         countDistinctCreators(liveDistractorBank[concreteCategory]) < 12
       ) {
-        setTimeout(() => refillLiveQueue(concreteCategory, 6, 12, 26, seenSlugs).catch(() => {}), 320);
+        shouldPrewarmBackground = true;
       }
-      let resolved = fetched;
-      if (fetched.category === 'books') resolved = await resolveSafeBookCoverItem(fetched);
-      else if (fetched.category === 'music') resolved = await resolveSafeMusicCoverItem(fetched);
-      recordSeenWork(resolved);
-      return resolved;
+      let nextItem = fetched;
+      if (fetched.category === 'books') nextItem = await resolveSafeBookCoverItem(fetched);
+      else if (fetched.category === 'music') nextItem = await resolveSafeMusicCoverItem(fetched);
+      recordSeenWork(nextItem);
+      resolved = nextItem;
+      break;
     }
   }
 
   // Last-resort direct fetch before touching stored catalog
-  const liveDirect = await fetchLiveRandomItem(concreteCategory, seenSlugs);
-  if (liveDirect) {
-    setTimeout(() => refillLiveQueue(concreteCategory, 6, 12, 26, seenSlugs).catch(() => {}), 320);
-    return liveDirect;
+  if (!resolved) {
+    const liveDirect = await fetchLiveRandomItem(concreteCategory, seenSlugs);
+    if (liveDirect) {
+      shouldPrewarmBackground = true;
+      resolved = liveDirect;
+    }
   }
 
   // Emergency offline fallback only if Wikipedia is unreachable
-  const unseenSameCat = CULTURAL_ITEMS.filter(
-    it => it.category === concreteCategory && !isWorkSeen(it, seenSlugs)
-  );
-  const unseenAnyCat =
-    category === 'everything'
-      ? CULTURAL_ITEMS.filter(it => !isWorkSeen(it, seenSlugs))
-      : [];
-  const pool =
-    unseenSameCat.length > 0
-      ? unseenSameCat
-      : unseenAnyCat.length > 0
-      ? unseenAnyCat
-      : CULTURAL_ITEMS.filter(it => it.category === concreteCategory);
-  const fallback = pool[Math.floor(Math.random() * pool.length)];
+  if (!resolved) {
+    const unseenSameCat = CULTURAL_ITEMS.filter(
+      it => it.category === concreteCategory && !isWorkSeen(it, seenSlugs)
+    );
+    const unseenAnyCat =
+      category === 'everything'
+        ? CULTURAL_ITEMS.filter(it => !isWorkSeen(it, seenSlugs))
+        : [];
+    const pool =
+      unseenSameCat.length > 0
+        ? unseenSameCat
+        : unseenAnyCat.length > 0
+        ? unseenAnyCat
+        : CULTURAL_ITEMS.filter(it => it.category === concreteCategory);
+    const fallback = pool[Math.floor(Math.random() * pool.length)];
 
-  let resolvedFallback = fallback;
-  if (fallback.category === 'books') resolvedFallback = await resolveSafeBookCoverItem(fallback);
-  else if (fallback.category === 'music') resolvedFallback = await resolveSafeMusicCoverItem(fallback);
-  recordSeenWork(resolvedFallback);
-  return resolvedFallback;
+    let resolvedFallback = fallback;
+    if (fallback.category === 'books') resolvedFallback = await resolveSafeBookCoverItem(fallback);
+    else if (fallback.category === 'music') resolvedFallback = await resolveSafeMusicCoverItem(fallback);
+    recordSeenWork(resolvedFallback);
+    resolved = resolvedFallback;
+  }
+
+  if (minUnusedTarget > 0) {
+    const targetKey = toEasyOptionKey(resolved.title, resolved.creator);
+    await ensureUnusedLiveDistractors(
+      resolved.category,
+      seenSlugs,
+      minUnusedTarget,
+      options?.usedDistractorKeys,
+      targetKey,
+      resolved.creator
+    );
+  }
+
+  if (shouldPrewarmBackground) {
+    setTimeout(
+      () => refillLiveQueue(resolved.category, 6, 12, 26, seenSlugs).catch(() => {}),
+      320
+    );
+  }
+
+  return resolved;
 }
 
 let prewarmRunning = false;
@@ -1049,6 +1258,7 @@ export async function buildMultiplayerLiveRoomPool(
   const usedSlugs = new Set<string>();
   const usedPageIds = new Set<number>();
   const usedWorkKeys = new Set<string>();
+  const usedImageKeys = new Set<string>();
   const creatorCounts = new Map<string, number>();
 
   const targetCats: WorkCategory[] =
@@ -1059,12 +1269,12 @@ export async function buildMultiplayerLiveRoomPool(
   const targetPerCat =
     category === 'everything' ? (gameMode === 'forever' ? 8 : 9) : totalNeeded;
   const minCreatorsPerCat = category === 'everything' ? 5 : 8;
-  const maxPasses = category === 'everything' ? 5 : 7;
+  const maxPasses = category === 'everything' ? 10 : 12;
   const maxFromSingleBatch = 6;
 
   for (let pass = 0; pass < maxPasses; pass++) {
     let allSatisfied = true;
-    const allowSessionSeen = pass >= maxPasses - 2;
+    const allowSessionSeen = pass >= maxPasses - 1;
     for (const workCat of targetCats) {
       const catItems = pickedItems.filter(it => it.category === workCat);
       const needsMore =
@@ -1072,25 +1282,35 @@ export async function buildMultiplayerLiveRoomPool(
       if (!needsMore) continue;
 
       allSatisfied = false;
-      const batch = await fetchLiveBatch(workCat, Math.random, pass >= maxPasses - 1, pass >= 1);
+      const batch = await fetchLiveBatch(
+        workCat,
+        Math.random,
+        pass >= maxPasses - 2,
+        pass >= 1,
+        pass >= maxPasses - 4 ? 'letter' : 'auto',
+        false
+      );
       const shuffled = shuffleInPlace([...batch]);
       let addedThisBatch = 0;
       for (const item of shuffled) {
         const slugLower = item.wikiSlug.toLowerCase();
         const workKey = toCanonicalWorkKey(item.category, item.title, item.creator);
+        const imgKey = extractNormalizedImageKey(item.image || item.highResImage);
         if (usedSlugs.has(slugLower)) continue;
         if (item.wikiPageId && usedPageIds.has(item.wikiPageId)) continue;
         if (usedWorkKeys.has(workKey)) continue;
+        if (imgKey && usedImageKeys.has(imgKey)) continue;
         if (!allowSessionSeen && isWorkSeen(item)) continue;
 
         const cKey = item.creator.trim().toLowerCase();
         const existingCount = creatorCounts.get(cKey) || 0;
-        if (pass < maxPasses - 1 && existingCount >= 2) continue;
+        if (pass < maxPasses - 2 && existingCount >= 2) continue;
 
         usedSlugs.add(item.wikiSlug);
         usedSlugs.add(slugLower);
         if (item.wikiPageId) usedPageIds.add(item.wikiPageId);
         usedWorkKeys.add(workKey);
+        if (imgKey) usedImageKeys.add(imgKey);
         creatorCounts.set(cKey, existingCount + 1);
         pickedItems.push(item);
         addedThisBatch++;
@@ -1465,12 +1685,516 @@ export async function hydrateMultiplayerItems(
   return res.items;
 }
 
+const mpDistractorBatchCache = new Map<string, CulturalItem[]>();
+const MAX_MP_DIST_BATCHES = 90;
+
+export function clearMultiplayerDistractorCacheForTest(): void {
+  mpDistractorBatchCache.clear();
+}
+
+async function getMpDistractorBatch(
+  challengeId: string,
+  workCat: WorkCategory,
+  batchIdx: number
+): Promise<CulturalItem[]> {
+  const cacheKey = `${challengeId}:mp-dist:${workCat}:b${batchIdx}`;
+  const cached = mpDistractorBatchCache.get(cacheKey);
+  if (cached) return cached;
+
+  const srcRng = createSeededRng(`${cacheKey}:src`);
+  const forceNoPrefix = batchIdx >= 10 && batchIdx % 3 === 2;
+  const prefixMode = batchIdx % 4 === 3 ? 'letter' : 'auto';
+  const raw = await fetchLiveBatch(workCat, srcRng, forceNoPrefix, true, prefixMode, false);
+
+  const dedupedBySlug = new Map<string, CulturalItem>();
+  for (const it of raw) {
+    const k = it.wikiSlug.toLowerCase();
+    if (!dedupedBySlug.has(k)) dedupedBySlug.set(k, it);
+  }
+  const sorted = Array.from(dedupedBySlug.values()).sort((a, b) =>
+    a.wikiSlug.localeCompare(b.wikiSlug)
+  );
+  const ordered = seededShuffle(sorted, createSeededRng(`${cacheKey}:order`));
+  mpDistractorBatchCache.set(cacheKey, ordered);
+  return ordered;
+}
+
+async function resolveDeterministicMpDistractors(
+  baseItem: CulturalItem,
+  challenge: MultiplayerChallenge,
+  roundIndex: number,
+  hydratedManifest: CulturalItem[] | undefined,
+  priorItems: readonly CulturalItem[]
+): Promise<EasyDistractorMetadata[]> {
+  const workCat = baseItem.category;
+  const targetCreatorLower = baseItem.creator.trim().toLowerCase();
+
+  const questionOptionKeys = new Set<string>();
+  const questionSlugs = new Set<string>();
+  const questionPageIds = new Set<number>();
+  const questionWorkKeys = new Set<string>();
+  const questionImgKeys = new Set<string>();
+
+  const registerQuestion = (
+    cat: WorkCategory,
+    slug?: string,
+    title?: string,
+    creator?: string,
+    pageId?: number,
+    img?: string
+  ) => {
+    if (slug) {
+      questionSlugs.add(slug);
+      questionSlugs.add(slug.toLowerCase());
+    }
+    if (pageId && pageId > 0) questionPageIds.add(pageId);
+    if (title) {
+      questionWorkKeys.add(toCanonicalWorkKey(cat, title, creator));
+      if (creator) questionOptionKeys.add(toEasyOptionKey(title, creator));
+    }
+    const imgKey = extractNormalizedImageKey(img);
+    if (imgKey) questionImgKeys.add(imgKey);
+  };
+
+  registerQuestion(
+    baseItem.category,
+    baseItem.wikiSlug,
+    baseItem.title,
+    baseItem.creator,
+    baseItem.wikiPageId,
+    baseItem.image || baseItem.highResImage
+  );
+  for (const m of challenge.manifest || []) {
+    registerQuestion(m.category, m.slug, m.title, m.creator, m.pageId, m.image);
+  }
+  for (const h of hydratedManifest || []) {
+    registerQuestion(
+      h.category,
+      h.wikiSlug,
+      h.title,
+      h.creator,
+      h.wikiPageId,
+      h.image || h.highResImage
+    );
+  }
+
+  const usedOptionKeys = new Set<string>();
+  const usedSlugs = new Set<string>();
+  const usedPageIds = new Set<number>();
+  const usedWorkKeys = new Set<string>();
+  const usedImgKeys = new Set<string>();
+
+  for (const prev of priorItems) {
+    registerQuestion(
+      prev.category,
+      prev.wikiSlug,
+      prev.title,
+      prev.creator,
+      prev.wikiPageId,
+      prev.image || prev.highResImage
+    );
+    for (const d of prev.mpDistractors || []) {
+      if (d.slug) {
+        usedSlugs.add(d.slug);
+        usedSlugs.add(d.slug.toLowerCase());
+      }
+      if (d.pageId && d.pageId > 0) usedPageIds.add(d.pageId);
+      usedWorkKeys.add(toCanonicalWorkKey(d.category, d.title, d.creator));
+      usedOptionKeys.add(toEasyOptionKey(d.title, d.creator));
+      const imgKey = extractNormalizedImageKey(d.image);
+      if (imgKey) usedImgKeys.add(imgKey);
+    }
+  }
+
+  const reservedLockedDistKeys = new Set<string>();
+  const reservedLockedPageIds = new Set<number>();
+  for (const ld of challenge.distractors || []) {
+    if (ld.title && ld.creator) {
+      reservedLockedDistKeys.add(toEasyOptionKey(ld.title, ld.creator));
+    }
+    if (ld.pageId && ld.pageId > 0) {
+      reservedLockedPageIds.add(ld.pageId);
+    }
+  }
+
+  const picked: EasyDistractorMetadata[] = [];
+  const pickedOptionKeys = new Set<string>();
+  const pickedWorkKeys = new Set<string>();
+  const pickedCreators = new Set<string>();
+
+  const canPickCandidate = (
+    cand: {
+      category: WorkCategory;
+      title: string;
+      creator: string;
+      slug?: string;
+      pageId?: number;
+      image?: string;
+    },
+    allowSameCreator: boolean,
+    allowSameRoundCreator: boolean,
+    skipLockedReserved: boolean
+  ): boolean => {
+    if (cand.category !== workCat) return false;
+    const tClean = (cand.title || '').trim();
+    const cClean = (cand.creator || '').trim();
+    if (!tClean || !cClean) return false;
+    if (tClean.toLowerCase() === baseItem.title.trim().toLowerCase()) return false;
+
+    const optKey = toEasyOptionKey(tClean, cClean);
+    const workKey = toCanonicalWorkKey(cand.category, tClean, cClean);
+    const slugLower = (cand.slug || '').trim().toLowerCase();
+    const imgKey = extractNormalizedImageKey(cand.image);
+
+    if (pickedOptionKeys.has(optKey) || pickedWorkKeys.has(workKey)) return false;
+    if (questionOptionKeys.has(optKey) || questionWorkKeys.has(workKey)) return false;
+    if (usedOptionKeys.has(optKey) || usedWorkKeys.has(workKey)) return false;
+    if (cand.pageId && (questionPageIds.has(cand.pageId) || usedPageIds.has(cand.pageId))) {
+      return false;
+    }
+    if (
+      slugLower &&
+      (questionSlugs.has(slugLower) || usedSlugs.has(slugLower))
+    ) {
+      return false;
+    }
+    if (imgKey && (questionImgKeys.has(imgKey) || usedImgKeys.has(imgKey))) return false;
+    if (
+      skipLockedReserved &&
+      (reservedLockedDistKeys.has(optKey) ||
+        (cand.pageId && reservedLockedPageIds.has(cand.pageId)))
+    ) {
+      return false;
+    }
+
+    const cLower = cClean.toLowerCase();
+    if (!allowSameCreator && cLower === targetCreatorLower) return false;
+    if (!allowSameRoundCreator && pickedCreators.has(cLower)) return false;
+    return true;
+  };
+
+  const commitCandidate = (cand: EasyDistractorMetadata) => {
+    const optKey = toEasyOptionKey(cand.title, cand.creator);
+    pickedOptionKeys.add(optKey);
+    pickedWorkKeys.add(toCanonicalWorkKey(cand.category, cand.title, cand.creator));
+    pickedCreators.add(cand.creator.trim().toLowerCase());
+    picked.push(cand);
+  };
+
+  // Priority 1: Unused locked URL distractors matching this category
+  const lockedSorted = (challenge.distractors || [])
+    .filter(d => d.category === workCat && d.title && d.creator)
+    .map(d => ({
+      category: d.category,
+      title: d.title.trim(),
+      creator: d.creator.trim(),
+      ...(d.pageId ? { pageId: d.pageId } : {}),
+    }))
+    .sort((a, b) =>
+      `${a.title}--${a.creator}--${a.pageId || 0}`.localeCompare(
+        `${b.title}--${b.creator}--${b.pageId || 0}`
+      )
+    );
+  const lockedOrdered = seededShuffle(
+    lockedSorted,
+    createSeededRng(`${challenge.id}:mp-dist-locked:${workCat}:r${roundIndex}`)
+  );
+
+  for (const cand of lockedOrdered) {
+    if (picked.length >= 3) break;
+    if (canPickCandidate(cand, false, false, false)) {
+      commitCandidate(cand);
+    }
+  }
+
+  // Priority 2: Deterministic room-seeded live Wikipedia batches (cached statelessly per batchIdx)
+  const fetchedBatches: CulturalItem[][] = [];
+  for (let batchIdx = 0; batchIdx < MAX_MP_DIST_BATCHES && picked.length < 3; batchIdx++) {
+    const batch = await getMpDistractorBatch(challenge.id, workCat, batchIdx);
+    fetchedBatches.push(batch);
+    for (const it of batch) {
+      if (picked.length >= 3) break;
+      const cand: EasyDistractorMetadata = {
+        category: it.category,
+        title: it.title,
+        creator: it.creator,
+        slug: it.wikiSlug,
+        ...(it.wikiPageId ? { pageId: it.wikiPageId } : {}),
+        ...(it.image ? { image: it.image } : {}),
+      };
+      if (canPickCandidate(cand, false, false, true)) {
+        commitCandidate(cand);
+      }
+    }
+  }
+
+  // Pass B: Relax creator uniqueness using already-available locked + fetched batches if still < 3
+  for (const allowSameCreator of [false, true]) {
+    if (picked.length >= 3) break;
+    for (const cand of lockedOrdered) {
+      if (picked.length >= 3) break;
+      if (canPickCandidate(cand, allowSameCreator, true, false)) {
+        commitCandidate(cand);
+      }
+    }
+    for (const batch of fetchedBatches) {
+      if (picked.length >= 3) break;
+      for (const it of batch) {
+        if (picked.length >= 3) break;
+        const cand: EasyDistractorMetadata = {
+          category: it.category,
+          title: it.title,
+          creator: it.creator,
+          slug: it.wikiSlug,
+          ...(it.wikiPageId ? { pageId: it.wikiPageId } : {}),
+          ...(it.image ? { image: it.image } : {}),
+        };
+        if (canPickCandidate(cand, allowSameCreator, true, true)) {
+          commitCandidate(cand);
+        }
+      }
+    }
+  }
+
+  // Pass C: Emergency deterministic offline fallback ONLY if live Wikipedia could not deliver 3 distractors
+  if (picked.length < 3) {
+    const staticList =
+      workCat === 'music'
+        ? MUSIC_DISTRACTORS
+        : workCat === 'books'
+        ? BOOKS_DISTRACTORS
+        : ART_DISTRACTORS;
+    const offlineCombined: EasyDistractorMetadata[] = [
+      ...CULTURAL_ITEMS.filter(it => it.category === workCat).map(it => ({
+        category: it.category,
+        title: it.title,
+        creator: it.creator,
+        slug: it.wikiSlug,
+        pageId: it.wikiPageId,
+        image: it.image,
+      })),
+      ...staticList.map(s => ({ category: workCat, title: s.title, creator: s.creator })),
+    ].sort((a, b) => `${a.title}--${a.creator}`.localeCompare(`${b.title}--${b.creator}`));
+
+    const offlineOrdered = seededShuffle(
+      offlineCombined,
+      createSeededRng(`${challenge.id}:mp-dist-fallback:${workCat}:r${roundIndex}`)
+    );
+    for (const allowSameCreator of [false, true]) {
+      for (const cand of offlineOrdered) {
+        if (picked.length >= 3) break;
+        if (canPickCandidate(cand, allowSameCreator, true, false)) {
+          commitCandidate(cand);
+        }
+      }
+    }
+  }
+
+  return picked.slice(0, 3);
+}
+
+async function resolveChallengeRoundSingle(
+  challenge: MultiplayerChallenge,
+  roundIndex: number,
+  hydratedManifest: CulturalItem[] | undefined,
+  priorItems: readonly CulturalItem[]
+): Promise<CulturalItem> {
+  let baseItem: CulturalItem | null = null;
+
+  if (hydratedManifest && roundIndex < hydratedManifest.length) {
+    baseItem = hydratedManifest[roundIndex];
+  } else if (challenge.manifest && roundIndex < challenge.manifest.length) {
+    baseItem = manifestEntryToBaseItem(challenge.manifest[roundIndex], challenge.id, roundIndex);
+  }
+
+  if (!baseItem) {
+    const excludeSlugs = new Set<string>();
+    const excludePageIds = new Set<number>();
+    const excludeWorkKeys = new Set<string>();
+    const excludeImgKeys = new Set<string>();
+
+    const registerExcludedEntry = (
+      cat: WorkCategory,
+      slug?: string,
+      title?: string,
+      creator?: string,
+      pageId?: number,
+      image?: string
+    ) => {
+      if (slug) {
+        excludeSlugs.add(slug);
+        excludeSlugs.add(slug.toLowerCase());
+      }
+      if (pageId && pageId > 0) {
+        excludePageIds.add(pageId);
+      }
+      if (title) {
+        excludeWorkKeys.add(toCanonicalWorkKey(cat, title, creator));
+      }
+      const imgKey = extractNormalizedImageKey(image);
+      if (imgKey) {
+        excludeImgKeys.add(imgKey);
+      }
+    };
+
+    for (const m of challenge.manifest || []) {
+      registerExcludedEntry(m.category, m.slug, m.title, m.creator, m.pageId, m.image);
+    }
+    for (const h of hydratedManifest || []) {
+      registerExcludedEntry(
+        h.category,
+        h.wikiSlug,
+        h.title,
+        h.creator,
+        h.wikiPageId,
+        h.image || h.highResImage
+      );
+    }
+    if (challenge.difficulty === 'easy') {
+      for (const d of challenge.distractors || []) {
+        registerExcludedEntry(d.category, undefined, d.title, d.creator, d.pageId);
+      }
+    }
+    for (const prev of priorItems) {
+      registerExcludedEntry(
+        prev.category,
+        prev.wikiSlug,
+        prev.title,
+        prev.creator,
+        prev.wikiPageId,
+        prev.image || prev.highResImage
+      );
+      for (const dist of prev.mpDistractors || []) {
+        registerExcludedEntry(
+          dist.category,
+          dist.slug,
+          dist.title,
+          dist.creator,
+          dist.pageId,
+          dist.image
+        );
+      }
+    }
+
+    const isExcludedItem = (item: CulturalItem): boolean => {
+      const slugLower = item.wikiSlug.toLowerCase();
+      if (excludeSlugs.has(item.wikiSlug) || excludeSlugs.has(slugLower)) return true;
+      if (item.wikiPageId && excludePageIds.has(item.wikiPageId)) return true;
+      const workKey = toCanonicalWorkKey(item.category, item.title, item.creator);
+      if (excludeWorkKeys.has(workKey)) return true;
+      const imgKey = extractNormalizedImageKey(item.image || item.highResImage);
+      if (imgKey && excludeImgKeys.has(imgKey)) return true;
+      return false;
+    };
+
+    const category = challenge.category;
+    const challengeSeed = challenge.id;
+
+    // Deterministic live Wikipedia fetch for Round 11+ in Forever Survival (or un-manifested legacy links)
+    for (let probe = 0; probe < 20; probe++) {
+      const probeRng = createSeededRng(`${challengeSeed}:live:${category}:${roundIndex}:p${probe}`);
+      const concreteCategory = pickConcreteCategory(category, probeRng);
+      const source = pickCategorySource(concreteCategory, probeRng, probe < 12);
+      const forceNoPrefix = probe >= 14;
+      const prefixMode = probe >= 10 ? 'letter' : 'auto';
+      const prefixParam = pickSortPrefixParam(source, probeRng, forceNoPrefix, prefixMode);
+
+      const url =
+        `https://en.wikipedia.org/w/api.php?action=query&generator=categorymembers` +
+        `&gcmtitle=${encodeURIComponent(source.categoryName)}` +
+        `&gcmtype=page&gcmlimit=20&gcmsort=sortkey${prefixParam}` +
+        `&prop=pageimages|extracts|description|info` +
+        `&piprop=thumbnail|original&pithumbsize=400&pilicense=any&pilimit=20` +
+        `&exintro=1&explaintext=1&exsentences=3&exlimit=20` +
+        `&inprop=canonicalurl&format=json&origin=*`;
+
+      const data = await fetchJsonThrottled(url, 2);
+      const pages = Object.values(data?.query?.pages || {}) as any[];
+      if (pages.length === 0) continue;
+
+      // Canonical alphabetical sort BEFORE seeded shuffle guarantees every client picks the exact same item
+      const parsedCandidates = pages
+        .map(p => parseWikiBatchPageToItem(p, concreteCategory, source.expectedYear))
+        .filter((it): it is CulturalItem => Boolean(it && !isExcludedItem(it)))
+        .sort((a, b) => a.wikiSlug.localeCompare(b.wikiSlug));
+
+      if (parsedCandidates.length > 0) {
+        const ordered = seededShuffle(parsedCandidates, probeRng);
+        for (const chosen of ordered) {
+          if (!isExcludedItem(chosen)) {
+            baseItem = {
+              ...chosen,
+              id: `ch-${challengeSeed}-${roundIndex}-${chosen.wikiSlug}`,
+              // Keep Wikimedia cover directly so all players see the exact same thumbnail
+              altCoverApplied: true,
+            };
+            break;
+          }
+        }
+        if (baseItem) break;
+      }
+    }
+
+    // Deterministic unseen offline fallback strictly if live Wikipedia probes all failed
+    if (!baseItem) {
+      const offlineDeck = seededShuffle(
+        [...CULTURAL_ITEMS]
+          .filter(it => category === 'everything' || it.category === category)
+          .sort((a, b) => a.id.localeCompare(b.id)),
+        createSeededRng(`${challengeSeed}:offline:${category}`)
+      );
+      const unseenOffline = offlineDeck.filter(it => !isExcludedItem(it));
+      const picked =
+        unseenOffline.length > 0
+          ? unseenOffline[0]
+          : offlineDeck[roundIndex % offlineDeck.length];
+      baseItem = {
+        ...picked,
+        id: `ch-${challengeSeed}-${roundIndex}-${picked.wikiSlug || picked.id}`,
+        altCoverApplied: true,
+      };
+    }
+  }
+
+  if (challenge.difficulty === 'easy') {
+    const catRoundCount = Math.max(
+      1,
+      (challenge.manifest || []).filter(m => m.category === baseItem!.category).length
+    );
+    const catDistCount = new Set(
+      (challenge.distractors || [])
+        .filter(d => d.category === baseItem!.category && d.title && d.creator)
+        .map(d => toEasyOptionKey(d.title, d.creator))
+    ).size;
+
+    const needsMpDistractors =
+      challenge.gameMode === 'forever' || catDistCount < catRoundCount * 3;
+
+    if (needsMpDistractors) {
+      const mpDistractors = await resolveDeterministicMpDistractors(
+        baseItem,
+        challenge,
+        roundIndex,
+        hydratedManifest,
+        priorItems
+      );
+      return {
+        ...baseItem,
+        mpDistractors,
+      };
+    }
+  }
+
+  return baseItem;
+}
+
 /**
  * Deterministic challenge round resolver for any player on a Multiplayer room.
  * 1. Rounds inside `challenge.manifest` return exact locked live items (100% identical across all players).
  * 2. Deep Forever rounds past the pre-locked manifest (or bare legacy `?ch=` seeds)
  *    pull deterministically from canonically sorted verified Wikipedia batches with pinned thumbnails
- *    so clients never diverge on covers or race timeouts, while excluding EVERY prior round in the room.
+ *    so clients never diverge on covers or race timeouts, while excluding EVERY prior round & distractor in the room.
+ * 3. Easy Forever (and sparse Classic fallback) attaches 3 deterministic non-repeating `mpDistractors`.
  */
 export async function getSeededChallengeRoundItem(
   challenge: MultiplayerChallenge,
@@ -1478,117 +2202,22 @@ export async function getSeededChallengeRoundItem(
   hydratedManifest?: CulturalItem[],
   priorItems: readonly CulturalItem[] = []
 ): Promise<CulturalItem> {
-  if (hydratedManifest && roundIndex < hydratedManifest.length) {
-    return hydratedManifest[roundIndex];
-  }
-  if (challenge.manifest && roundIndex < challenge.manifest.length) {
-    return manifestEntryToBaseItem(challenge.manifest[roundIndex], challenge.id, roundIndex);
-  }
+  const manifestLen = hydratedManifest?.length || challenge.manifest?.length || 0;
+  const needsPriorHistory = challenge.difficulty === 'easy' || roundIndex >= manifestLen;
 
-  const excludeSlugs = new Set<string>();
-  const excludePageIds = new Set<number>();
-  const excludeWorkKeys = new Set<string>();
-
-  const registerExcludedEntry = (
-    cat: WorkCategory,
-    slug?: string,
-    title?: string,
-    creator?: string,
-    pageId?: number
-  ) => {
-    if (slug) {
-      excludeSlugs.add(slug);
-      excludeSlugs.add(slug.toLowerCase());
+  if (needsPriorHistory && priorItems.length < roundIndex && roundIndex - priorItems.length <= 25) {
+    const resolvedPrior: CulturalItem[] = [...priorItems];
+    for (let k = priorItems.length; k < roundIndex; k++) {
+      const prevStep = await resolveChallengeRoundSingle(
+        challenge,
+        k,
+        hydratedManifest,
+        resolvedPrior
+      );
+      resolvedPrior.push(prevStep);
     }
-    if (pageId && pageId > 0) {
-      excludePageIds.add(pageId);
-    }
-    if (title) {
-      excludeWorkKeys.add(toCanonicalWorkKey(cat, title, creator));
-    }
-  };
-
-  for (const m of challenge.manifest || []) {
-    registerExcludedEntry(m.category, m.slug, m.title, m.creator, m.pageId);
-  }
-  for (const h of hydratedManifest || []) {
-    registerExcludedEntry(h.category, h.wikiSlug, h.title, h.creator, h.wikiPageId);
-  }
-  for (const prev of priorItems) {
-    registerExcludedEntry(prev.category, prev.wikiSlug, prev.title, prev.creator, prev.wikiPageId);
+    return resolveChallengeRoundSingle(challenge, roundIndex, hydratedManifest, resolvedPrior);
   }
 
-  const isExcludedItem = (item: CulturalItem): boolean => {
-    const slugLower = item.wikiSlug.toLowerCase();
-    if (excludeSlugs.has(item.wikiSlug) || excludeSlugs.has(slugLower)) return true;
-    if (item.wikiPageId && excludePageIds.has(item.wikiPageId)) return true;
-    const workKey = toCanonicalWorkKey(item.category, item.title, item.creator);
-    if (excludeWorkKeys.has(workKey)) return true;
-    return false;
-  };
-
-  const category = challenge.category;
-  const challengeSeed = challenge.id;
-
-  // Deterministic live Wikipedia fetch for Round 11+ in Forever Survival (or un-manifested legacy links)
-  for (let probe = 0; probe < 14; probe++) {
-    const probeRng = createSeededRng(`${challengeSeed}:live:${category}:${roundIndex}:p${probe}`);
-    const concreteCategory = pickConcreteCategory(category, probeRng);
-    const source = pickCategorySource(concreteCategory, probeRng, probe < 10);
-    const forceNoPrefix = probe >= 11;
-    const prefixMode = probe >= 8 ? 'letter' : 'auto';
-    const prefixParam = pickSortPrefixParam(source, probeRng, forceNoPrefix, prefixMode);
-
-    const url =
-      `https://en.wikipedia.org/w/api.php?action=query&generator=categorymembers` +
-      `&gcmtitle=${encodeURIComponent(source.categoryName)}` +
-      `&gcmtype=page&gcmlimit=20&gcmsort=sortkey${prefixParam}` +
-      `&prop=pageimages|extracts|description|info` +
-      `&piprop=thumbnail|original&pithumbsize=400&pilicense=any&pilimit=20` +
-      `&exintro=1&explaintext=1&exsentences=3&exlimit=20` +
-      `&inprop=canonicalurl&format=json&origin=*`;
-
-    const data = await fetchJsonThrottled(url, 2);
-    const pages = Object.values(data?.query?.pages || {}) as any[];
-    if (pages.length === 0) continue;
-
-    // Canonical alphabetical sort BEFORE seeded shuffle guarantees every client picks the exact same item
-    const parsedCandidates = pages
-      .map(p => parseWikiBatchPageToItem(p, concreteCategory, source.expectedYear))
-      .filter((it): it is CulturalItem => Boolean(it && !isExcludedItem(it)))
-      .sort((a, b) => a.wikiSlug.localeCompare(b.wikiSlug));
-
-    if (parsedCandidates.length > 0) {
-      const ordered = seededShuffle(parsedCandidates, probeRng);
-      for (const chosen of ordered) {
-        if (!isExcludedItem(chosen)) {
-          pushToDistractorBank(chosen);
-          return {
-            ...chosen,
-            id: `ch-${challengeSeed}-${roundIndex}-${chosen.wikiSlug}`,
-            // Keep Wikimedia cover directly so all players see the exact same thumbnail
-            altCoverApplied: true,
-          };
-        }
-      }
-    }
-  }
-
-  // Deterministic unseen offline fallback strictly if live Wikipedia probes all failed
-  const offlineDeck = seededShuffle(
-    [...CULTURAL_ITEMS]
-      .filter(it => category === 'everything' || it.category === category)
-      .sort((a, b) => a.id.localeCompare(b.id)),
-    createSeededRng(`${challengeSeed}:offline:${category}`)
-  );
-  const unseenOffline = offlineDeck.filter(it => !isExcludedItem(it));
-  const picked =
-    unseenOffline.length > 0
-      ? unseenOffline[0]
-      : offlineDeck[roundIndex % offlineDeck.length];
-  return {
-    ...picked,
-    id: `ch-${challengeSeed}-${roundIndex}-${picked.wikiSlug || picked.id}`,
-    altCoverApplied: true,
-  };
+  return resolveChallengeRoundSingle(challenge, roundIndex, hydratedManifest, priorItems);
 }

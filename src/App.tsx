@@ -4,8 +4,11 @@ import { CATEGORY_THEMES } from './config/themes';
 import { CULTURAL_ITEMS } from './data/items';
 import {
   buildMultiplayerLiveRoomPool,
+  checkLiveDistractorSeen,
+  extractNormalizedImageKey,
   getLivePoolDistractors,
   getNextLiveRoundItem,
+  getQueuedLiveOptionKeys,
   getSeededChallengeRoundItem,
   hydrateMultiplayerChallenge,
   prewarmLiveQueues,
@@ -100,6 +103,7 @@ export function App() {
 
   // Anti-Recycle tracker: prevents items from repeating across solo runs & new rooms
   const seenItemIdsRef = useRef<Set<string>>(new Set());
+  const playedQuestionKeysRef = useRef<Set<string>>(new Set());
   const [, setSeenItemIds] = useState<Set<string>>(new Set());
   const isAdvancingRoundRef = useRef<boolean>(false);
 
@@ -113,7 +117,12 @@ export function App() {
     if (item.wikiPageId && item.wikiPageId > 0) {
       seenItemIdsRef.current.add(`pid:${item.wikiPageId}`);
     }
+    const imgKey = extractNormalizedImageKey(item.image || item.highResImage);
+    if (imgKey) {
+      seenItemIdsRef.current.add(imgKey);
+    }
     seenItemIdsRef.current.add(toCanonicalWorkKey(item.category, item.title, item.creator));
+    playedQuestionKeysRef.current.add(toEasyOptionKey(item.title, item.creator));
     setSeenItemIds(new Set(seenItemIdsRef.current));
   };
 
@@ -123,7 +132,8 @@ export function App() {
   // Forever Survival Mode State
   const [currentHp, setCurrentHp] = useState<number>(100);
 
-  // Track Easy choices shown across rounds/games in Solo so distractors don't repeat often
+  // Track Easy choices shown across rounds/games in Solo so distractors never repeat
+  const easyUsedCountsRef = useRef<Record<string, number>>({});
   const [easyUsedCounts, setEasyUsedCounts] = useState<Record<string, number>>({});
 
   // Audio & Modals
@@ -165,12 +175,27 @@ export function App() {
   const currentRoundItem = roundItems[roundIndex];
 
   // Snapshot live pool distractors per round item so Easy options stay stable mid-round
-  // while always originating from the random live Wikipedia pool (never stored items)
+  // while originating purely from unused random live Wikipedia works (never round Questions)
   const easyLivePool = useMemo(() => {
-    const liveBank = getLivePoolDistractors(category);
-    return [...liveBank, ...roundItems];
+    if (activeChallenge) return [];
+    return getLivePoolDistractors(category);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentRoundItem?.id, category, activeChallenge?.id, roundItems.length]);
+
+  const soloExcludeOptionKeys = useMemo(() => {
+    if (activeChallenge) return undefined;
+    const excluded = new Set<string>(playedQuestionKeysRef.current);
+    for (const key of getQueuedLiveOptionKeys(category)) {
+      excluded.add(key);
+    }
+    return excluded;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentRoundItem?.id, category, activeChallenge?.id, roundItems.length]);
+
+  const priorRoundItems = useMemo(
+    () => roundItems.slice(0, roundIndex),
+    [roundItems, roundIndex]
+  );
 
   const autocompleteItems = useMemo(() => {
     const liveBank = getLivePoolDistractors(category);
@@ -295,7 +320,11 @@ export function App() {
           []
         );
       } else {
-        firstItem = await getNextLiveRoundItem(activeCat, seenItemIdsRef.current);
+        const usedDistKeys = new Set(Object.keys(easyUsedCountsRef.current));
+        firstItem = await getNextLiveRoundItem(activeCat, seenItemIdsRef.current, {
+          minUnusedDistractors: difficulty === 'easy' ? 10 : 0,
+          usedDistractorKeys: usedDistKeys,
+        });
       }
       trackPlayedItem(firstItem);
 
@@ -414,17 +443,44 @@ export function App() {
     // Update streak multiplier for the next round
     setStreakMultiplier(evaluated.newStreak);
 
-    // Record Easy options shown this round so Solo distractors don't repeat back-to-back
+    // Record Easy options shown this round so Solo distractors never repeat or leak into future Questions
     if (difficulty === 'easy') {
-      setEasyUsedCounts(prev => {
-        const next = { ...prev };
-        const targetKey = toEasyOptionKey(currentItem.title, currentItem.creator);
-        next[targetKey] = (next[targetKey] || 0) + 1;
-        for (const key of guess.shownDistractorKeys || []) {
-          next[key] = (next[key] || 0) + 1;
+      const nextCounts = { ...easyUsedCountsRef.current };
+      const targetKey = toEasyOptionKey(currentItem.title, currentItem.creator);
+      nextCounts[targetKey] = (nextCounts[targetKey] || 0) + 1;
+      for (const key of guess.shownDistractorKeys || []) {
+        nextCounts[key] = (nextCounts[key] || 0) + 1;
+      }
+      easyUsedCountsRef.current = nextCounts;
+      setEasyUsedCounts(nextCounts);
+
+      if (!activeChallenge && guess.shownDistractors) {
+        for (const dist of guess.shownDistractors) {
+          recordSeenWork({
+            category: dist.category,
+            title: dist.title,
+            creator: dist.creator,
+            wikiSlug: dist.slug,
+            wikiPageId: dist.pageId,
+            image: dist.image,
+          });
+          if (dist.slug) {
+            seenItemIdsRef.current.add(dist.slug);
+            seenItemIdsRef.current.add(dist.slug.toLowerCase());
+          }
+          if (dist.pageId && dist.pageId > 0) {
+            seenItemIdsRef.current.add(`pid:${dist.pageId}`);
+          }
+          const distImgKey = extractNormalizedImageKey(dist.image);
+          if (distImgKey) {
+            seenItemIdsRef.current.add(distImgKey);
+          }
+          seenItemIdsRef.current.add(
+            toCanonicalWorkKey(dist.category, dist.title, dist.creator)
+          );
         }
-        return next;
-      });
+        setSeenItemIds(new Set(seenItemIdsRef.current));
+      }
     }
 
     setLatestResult(roundRes);
@@ -490,7 +546,11 @@ export function App() {
             trackPlayedItem(nextItem);
             setRoundItems(prev => [...prev, nextItem]);
           } else {
-            const nextItem = await getNextLiveRoundItem(category, seenItemIdsRef.current);
+            const usedDistKeys = new Set(Object.keys(easyUsedCountsRef.current));
+            const nextItem = await getNextLiveRoundItem(category, seenItemIdsRef.current, {
+              minUnusedDistractors: difficulty === 'easy' ? 10 : 0,
+              usedDistractorKeys: usedDistKeys,
+            });
             trackPlayedItem(nextItem);
             setRoundItems(prev => [...prev, nextItem]);
           }
@@ -565,9 +625,12 @@ export function App() {
             allItems={autocompleteItems}
             easyLivePool={easyLivePool}
             easyUsedCounts={easyUsedCounts}
+            soloExcludeOptionKeys={soloExcludeOptionKeys}
+            soloSeenCheck={checkLiveDistractorSeen}
             fallbackCatalogItems={CULTURAL_ITEMS}
             challenge={activeChallenge}
             roundIndex={roundIndex}
+            priorRoundItems={priorRoundItems}
           />
         )}
 

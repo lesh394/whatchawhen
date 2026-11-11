@@ -37,9 +37,12 @@ interface GamePlayRoundProps {
   allItems: CulturalItem[];
   easyLivePool?: EasyDistractorSource[];
   easyUsedCounts?: Readonly<Record<string, number>>;
+  soloExcludeOptionKeys?: ReadonlySet<string>;
+  soloSeenCheck?: (entry: EasyDistractorSource) => boolean;
   fallbackCatalogItems?: CulturalItem[];
   challenge?: MultiplayerChallenge | null;
   roundIndex?: number;
+  priorRoundItems?: readonly CulturalItem[];
 }
 
 export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
@@ -53,9 +56,12 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
   allItems,
   easyLivePool,
   easyUsedCounts,
+  soloExcludeOptionKeys,
+  soloSeenCheck,
   fallbackCatalogItems,
   challenge,
   roundIndex,
+  priorRoundItems,
 }) => {
   const theme = CATEGORY_THEMES[item.category];
   const [minYear, maxYear] = theme.yearRange;
@@ -70,13 +76,27 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
         challenge,
         roundIndex,
         easyLivePool || [],
-        fallbackCatalogItems || []
+        fallbackCatalogItems || [],
+        priorRoundItems || []
       );
     }
     return generateEasyOptions(item, easyLivePool || [], undefined, fallbackCatalogItems || [], {
       usedCounts: easyUsedCounts,
+      excludeOptionKeys: soloExcludeOptionKeys,
+      seenCheck: soloSeenCheck,
     });
-  }, [item, difficulty, easyLivePool, easyUsedCounts, fallbackCatalogItems, challenge, roundIndex]);
+  }, [
+    item,
+    difficulty,
+    easyLivePool,
+    easyUsedCounts,
+    soloExcludeOptionKeys,
+    soloSeenCheck,
+    fallbackCatalogItems,
+    challenge,
+    roundIndex,
+    priorRoundItems,
+  ]);
 
   const initialYear = difficulty === 'easy' && easyOptions ? easyOptions.years[0] : defaultYear;
 
@@ -237,11 +257,24 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
 
     const finalYear = difficulty === 'easy' ? selectedYear : commitTypedYear();
     const finalGuessText = difficulty === 'easy' ? selectedEasyId : typedGuess.trim();
-    const shownDistractorKeys =
+    const distractorChoices =
       difficulty === 'easy' && easyOptions
-        ? easyOptions.identifications
-            .filter(o => !o.isCorrect)
-            .map(o => toEasyOptionKey(o.title, o.creator))
+        ? easyOptions.identifications.filter(o => !o.isCorrect)
+        : [];
+    const shownDistractorKeys =
+      distractorChoices.length > 0
+        ? distractorChoices.map(o => toEasyOptionKey(o.title, o.creator))
+        : undefined;
+    const shownDistractors =
+      distractorChoices.length > 0
+        ? distractorChoices.map(o => ({
+            category: o.category || item.category,
+            title: o.title,
+            creator: o.creator,
+            ...(o.slug ? { slug: o.slug } : {}),
+            ...(o.pageId ? { pageId: o.pageId } : {}),
+            ...(o.image ? { image: o.image } : {}),
+          }))
         : undefined;
 
     onSubmitGuess({
@@ -250,6 +283,7 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
       hintsUsed: hasUsedHintInRound ? 1 : 0,
       isEasyChoice: difficulty === 'easy',
       shownDistractorKeys,
+      shownDistractors,
     });
   };
 

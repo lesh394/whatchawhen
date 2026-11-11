@@ -353,11 +353,17 @@ export interface EasyDistractorSource {
   id?: string;
   year?: number;
   slug?: string;
+  wikiSlug?: string;
+  pageId?: number;
+  wikiPageId?: number;
+  image?: string;
 }
 
 export interface EasyOptionsConfig {
   usedCounts?: Readonly<Record<string, number>>;
   futureTargetKeys?: ReadonlySet<string>;
+  excludeOptionKeys?: ReadonlySet<string>;
+  seenCheck?: (entry: EasyDistractorSource) => boolean;
 }
 
 export function toEasyOptionKey(title: string, creator: string): string {
@@ -368,7 +374,8 @@ export function toEasyOptionKey(title: string, creator: string): string {
  * Generates varied 4 multiple-choice options for Easy mode.
  * Draws distractors from the live random pool first, only falling back to static/stored
  * distractors if fewer than 3 live items are available.
- * Deprioritizes recently shown distractors (`usedCounts`) so options don't repeat across rounds.
+ * Excludes played/queued Questions (`excludeOptionKeys`) and deprioritizes recently shown
+ * or previously seen distractors (`usedCounts`, `seenCheck`) so options never repeat across rounds.
  * When `deterministicSeed` is supplied (Multiplayer mode), canonical sorting + Mulberry32
  * produces the exact same year choices, distractors, and button order across every player.
  */
@@ -392,7 +399,7 @@ export function generateEasyOptions(
   const yearRng = makeStream('years');
   const pickRng = makeStream('pick');
   const orderRng = makeStream('order');
-  const { usedCounts = {}, futureTargetKeys } = config;
+  const { usedCounts = {}, futureTargetKeys, excludeOptionKeys, seenCheck } = config;
 
   // 1. Dynamic Year Generation across all 4 relative-rank spreads, then unbiased shuffle across all 4 slots
   const catMinYear =
@@ -469,34 +476,75 @@ export function generateEasyOptions(
   // 2. Identification Choices: Live Random Pool FIRST, stored fallback ONLY if < 3 available
   const targetTitleLower = targetItem.title.trim().toLowerCase();
   const targetCreatorLower = targetItem.creator.trim().toLowerCase();
+  const targetSlugLower = (targetItem.wikiSlug || '').trim().toLowerCase();
+  const targetKey = toEasyOptionKey(targetItem.title, targetItem.creator);
 
   const isSameWorkTitle = (title: string) =>
     (title || '').trim().toLowerCase() === targetTitleLower;
 
   const isEligibleDistractor = (
-    d: { title: string; creator: string; category?: CulturalItem['category']; id?: string },
-    allowSameCreator: boolean = false
+    d: EasyDistractorSource,
+    allowSameCreator: boolean = false,
+    enforceExcludeKeys: boolean = true
   ) => {
     if (d.category && d.category !== targetItem.category) return false;
     if (d.id && d.id === targetItem.id) return false;
+    const entrySlugLower = (d.slug || d.wikiSlug || '').trim().toLowerCase();
+    if (targetSlugLower && entrySlugLower && entrySlugLower === targetSlugLower) return false;
+    const entryPageId = d.pageId ?? d.wikiPageId;
+    if (targetItem.wikiPageId && entryPageId && entryPageId === targetItem.wikiPageId) return false;
     const tLower = (d.title || '').trim().toLowerCase();
     const cLower = (d.creator || '').trim().toLowerCase();
     if (!tLower || !cLower) return false;
     if (isSameWorkTitle(tLower)) return false;
+    const optKey = toEasyOptionKey(d.title, d.creator);
+    if (optKey === targetKey) return false;
+    if (enforceExcludeKeys && excludeOptionKeys?.has(optKey)) return false;
     if (!allowSameCreator && cLower === targetCreatorLower) return false;
     return true;
   };
 
+  interface CollectedDistractor {
+    title: string;
+    creator: string;
+    category: CulturalItem['category'];
+    slug?: string;
+    pageId?: number;
+    image?: string;
+  }
+
   const collectPool = (
     items: readonly EasyDistractorSource[],
-    allowSameCreator: boolean
-  ) => {
-    const map = new Map<string, { title: string; creator: string }>();
+    allowSameCreator: boolean,
+    enforceExcludeKeys: boolean = true
+  ): CollectedDistractor[] => {
+    const map = new Map<string, CollectedDistractor>();
     for (const entry of items || []) {
-      if (!isEligibleDistractor(entry, allowSameCreator)) continue;
+      if (!isEligibleDistractor(entry, allowSameCreator, enforceExcludeKeys)) continue;
       const key = toEasyOptionKey(entry.title, entry.creator);
-      if (!map.has(key)) {
-        map.set(key, { title: entry.title.trim(), creator: entry.creator.trim() });
+      const entrySlug = entry.slug || entry.wikiSlug;
+      const entryPageId = entry.pageId ?? entry.wikiPageId;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          title: entry.title.trim(),
+          creator: entry.creator.trim(),
+          category: entry.category || targetItem.category,
+          ...(entrySlug ? { slug: entrySlug } : {}),
+          ...(entryPageId ? { pageId: entryPageId } : {}),
+          ...(entry.image ? { image: entry.image } : {}),
+        });
+      } else if (
+        (!existing.slug && entrySlug) ||
+        (!existing.pageId && entryPageId) ||
+        (!existing.image && entry.image)
+      ) {
+        map.set(key, {
+          ...existing,
+          slug: existing.slug || entrySlug,
+          pageId: existing.pageId || entryPageId,
+          image: existing.image || entry.image,
+        });
       }
     }
     const list = Array.from(map.values());
@@ -506,17 +554,18 @@ export function generateEasyOptions(
     return list;
   };
 
-  const chosenDistractors: { title: string; creator: string }[] = [];
+  const chosenDistractors: CollectedDistractor[] = [];
   const seenKeys = new Set<string>();
 
-  const pickFrom = (list: { title: string; creator: string }[]) => {
-    // Partition by (usage count, upcoming manifest target) so fresh distractors always appear before repeats
-    const buckets = new Map<number, { title: string; creator: string }[]>();
+  const pickFrom = (list: CollectedDistractor[]) => {
+    // Partition by (usage count / seen status, upcoming manifest target) so fresh distractors always appear before repeats
+    const buckets = new Map<number, CollectedDistractor[]>();
     for (const d of list) {
       const key = toEasyOptionKey(d.title, d.creator);
       const count = usedCounts[key] || 0;
+      const effectiveCount = count === 0 && seenCheck?.(d) ? 1 : count;
       const futurePenalty = futureTargetKeys?.has(key) ? 1 : 0;
-      const rankScore = count * 2 + futurePenalty;
+      const rankScore = effectiveCount * 2 + futurePenalty;
       const bucket = buckets.get(rankScore);
       if (bucket) {
         bucket.push(d);
@@ -540,27 +589,47 @@ export function generateEasyOptions(
     }
   };
 
-  // Tier 1: Live pool items with distinct work + distinct creator
-  pickFrom(collectPool(livePoolItems, false));
+  // Tier 1: Live pool items with distinct work + distinct creator, excluding Questions
+  pickFrom(collectPool(livePoolItems, false, true));
 
-  // Tier 2: Live pool items with distinct work (handles single-artist categories like Monet/Van Gogh)
+  // Tier 2: Live pool items with distinct work (handles single-artist pools), excluding Questions
   if (chosenDistractors.length < 3) {
-    pickFrom(collectPool(livePoolItems, true));
+    pickFrom(collectPool(livePoolItems, true, true));
   }
 
-  // Tier 3: Offline fallback only if the live random pool yielded fewer than 3 distractors
-  if (chosenDistractors.length < 3) {
-    const staticFallbackPool = targetItem.category === 'music'
-      ? MUSIC_DISTRACTORS
-      : targetItem.category === 'books'
-      ? BOOKS_DISTRACTORS
-      : ART_DISTRACTORS;
+  const buildFallbackPool = () => {
+    const staticFallbackPool =
+      targetItem.category === 'music'
+        ? MUSIC_DISTRACTORS
+        : targetItem.category === 'books'
+        ? BOOKS_DISTRACTORS
+        : ART_DISTRACTORS;
 
     const storedCatalog = (fallbackCatalogItems || [])
       .filter(it => it.category === targetItem.category && it.id !== targetItem.id)
-      .map(it => ({ title: it.title, creator: it.creator, category: it.category }));
+      .map(it => ({
+        title: it.title,
+        creator: it.creator,
+        category: it.category,
+        slug: it.wikiSlug,
+        pageId: it.wikiPageId,
+        image: it.image,
+      }));
 
-    pickFrom(collectPool([...storedCatalog, ...staticFallbackPool.map(s => ({ ...s, category: targetItem.category }))], false));
+    return [...storedCatalog, ...staticFallbackPool.map(s => ({ ...s, category: targetItem.category }))];
+  };
+
+  // Tier 3: Offline fallback only if the live random pool yielded fewer than 3 non-excluded distractors
+  if (chosenDistractors.length < 3) {
+    pickFrom(collectPool(buildFallbackPool(), false, true));
+  }
+
+  // Tier 4: Emergency relaxation if an isolated tiny pool exhausted all non-excluded items
+  if (chosenDistractors.length < 3) {
+    pickFrom(collectPool(livePoolItems, true, false));
+  }
+  if (chosenDistractors.length < 3) {
+    pickFrom(collectPool(buildFallbackPool(), true, false));
   }
 
   const rawIdentifications = [
@@ -569,12 +638,17 @@ export function generateEasyOptions(
       creator: targetItem.creator,
       label: `${targetItem.title} - ${targetItem.creator}`,
       isCorrect: true,
+      category: targetItem.category,
     },
     ...chosenDistractors.map(d => ({
       title: d.title,
       creator: d.creator,
       label: `${d.title} - ${d.creator}`,
       isCorrect: false,
+      category: d.category,
+      ...(d.slug ? { slug: d.slug } : {}),
+      ...(d.pageId ? { pageId: d.pageId } : {}),
+      ...(d.image ? { image: d.image } : {}),
     })),
   ];
 
@@ -588,7 +662,7 @@ export function generateEasyOptions(
 
 /**
  * Deterministically generates Multiplayer Easy choices across rounds 0..roundIndex so
- * distractors never repeat back-to-back, future rounds aren't spoiled early, and all
+ * distractors never repeat back-to-back, Questions never leak into Easy options, and all
  * players in the same room still receive the exact same 4 choices on every round.
  */
 export function generateMultiplayerEasyOptionsForRound(
@@ -600,36 +674,64 @@ export function generateMultiplayerEasyOptionsForRound(
   },
   roundIndex: number,
   fallbackLivePool: readonly EasyDistractorSource[],
-  fallbackCatalogItems: readonly CulturalItem[]
+  fallbackCatalogItems: readonly CulturalItem[],
+  priorRoundItems: readonly CulturalItem[] = []
 ): EasyRoundOptions {
-  const lockedRoomPool: EasyDistractorSource[] = [
-    ...(challenge.distractors || []),
-    ...(challenge.manifest || []),
-  ];
-
-  const targetTitleLower = targetItem.title.trim().toLowerCase();
-  const matchingLockedCount = new Set(
-    lockedRoomPool
-      .filter(
-        d =>
-          (!d.category || d.category === targetItem.category) &&
-          Boolean(d.title) &&
-          Boolean(d.creator) &&
-          d.title.trim().toLowerCase() !== targetTitleLower
-      )
-      .map(d => d.title.trim().toLowerCase())
-  ).size;
-
-  const primaryPool: EasyDistractorSource[] =
-    matchingLockedCount >= 3 ? lockedRoomPool : [...lockedRoomPool, ...fallbackLivePool];
-
   const manifest = challenge.manifest || [];
-  if (manifest.length === 0 || matchingLockedCount < 3) {
+  const questionKeys = new Set<string>();
+  questionKeys.add(toEasyOptionKey(targetItem.title, targetItem.creator));
+  for (const m of manifest) {
+    if (m.title && m.creator) {
+      questionKeys.add(toEasyOptionKey(m.title, m.creator));
+    }
+  }
+  for (const prev of priorRoundItems) {
+    questionKeys.add(toEasyOptionKey(prev.title, prev.creator));
+  }
+
+  // Forever Easy (and sparse Classic fallback) pre-attaches 3 deterministic room distractors onto `targetItem.mpDistractors`
+  if (targetItem.mpDistractors && targetItem.mpDistractors.length >= 3) {
     return generateEasyOptions(
       targetItem,
-      primaryPool,
+      targetItem.mpDistractors,
       `${challenge.id}:easy:${roundIndex}`,
-      fallbackCatalogItems
+      fallbackCatalogItems,
+      { excludeOptionKeys: questionKeys }
+    );
+  }
+
+  const lockedDistractors: EasyDistractorSource[] = [...(challenge.distractors || [])];
+
+  const countUnusedLockedFor = (
+    stepCat: CulturalItem['category'],
+    stepTitleLower: string,
+    usedCounts: Readonly<Record<string, number>>
+  ): number =>
+    new Set(
+      lockedDistractors
+        .filter(d => {
+          if (d.category && d.category !== stepCat) return false;
+          if (!d.title || !d.creator) return false;
+          if (d.title.trim().toLowerCase() === stepTitleLower) return false;
+          const k = toEasyOptionKey(d.title, d.creator);
+          if (questionKeys.has(k)) return false;
+          if ((usedCounts[k] || 0) > 0) return false;
+          return true;
+        })
+        .map(d => toEasyOptionKey(d.title, d.creator))
+    ).size;
+
+  const initialUsed: Record<string, number> = {};
+  if (manifest.length === 0) {
+    const hasEnoughLocked =
+      countUnusedLockedFor(targetItem.category, targetItem.title.trim().toLowerCase(), initialUsed) >= 3;
+    const pool = hasEnoughLocked ? lockedDistractors : [...lockedDistractors, ...fallbackLivePool];
+    return generateEasyOptions(
+      targetItem,
+      pool,
+      `${challenge.id}:easy:${roundIndex}`,
+      fallbackCatalogItems,
+      { excludeOptionKeys: questionKeys }
     );
   }
 
@@ -637,31 +739,33 @@ export function generateMultiplayerEasyOptionsForRound(
   const maxStep = Math.min(roundIndex, manifest.length - 1);
 
   for (let k = 0; k <= maxStep; k++) {
+    const stepCat = (manifest[k].category || targetItem.category) as CulturalItem['category'];
     const stepItem: CulturalItem =
       k === roundIndex
         ? targetItem
-        : ({
+        : {
             ...targetItem,
             id: `step-${k}-${manifest[k].slug || manifest[k].title}`,
-            category: (manifest[k].category || targetItem.category) as CulturalItem['category'],
+            category: stepCat,
             title: manifest[k].title || targetItem.title,
             creator: manifest[k].creator || targetItem.creator,
             year: manifest[k].year || targetItem.year,
-          });
+          };
 
-    const futureTargetKeys = new Set<string>();
-    for (let j = k + 1; j < manifest.length; j++) {
-      if (manifest[j].title && manifest[j].creator) {
-        futureTargetKeys.add(toEasyOptionKey(manifest[j].title, manifest[j].creator));
-      }
-    }
+    const unusedLocked = countUnusedLockedFor(
+      stepCat,
+      stepItem.title.trim().toLowerCase(),
+      usedCounts
+    );
+    const stepPool =
+      unusedLocked >= 3 ? lockedDistractors : [...lockedDistractors, ...fallbackLivePool];
 
     const opts = generateEasyOptions(
       stepItem,
-      primaryPool,
+      stepPool,
       `${challenge.id}:easy:${k}`,
       fallbackCatalogItems,
-      { usedCounts, futureTargetKeys }
+      { usedCounts, excludeOptionKeys: questionKeys }
     );
 
     if (roundIndex < manifest.length && k === roundIndex) {
@@ -678,12 +782,20 @@ export function generateMultiplayerEasyOptionsForRound(
     }
   }
 
+  const remainingLocked = countUnusedLockedFor(
+    targetItem.category,
+    targetItem.title.trim().toLowerCase(),
+    usedCounts
+  );
+  const deepPool =
+    remainingLocked >= 3 ? lockedDistractors : [...lockedDistractors, ...fallbackLivePool];
+
   return generateEasyOptions(
     targetItem,
-    primaryPool,
+    deepPool,
     `${challenge.id}:easy:${roundIndex}`,
     fallbackCatalogItems,
-    { usedCounts }
+    { usedCounts, excludeOptionKeys: questionKeys }
   );
 }
 

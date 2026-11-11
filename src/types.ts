@@ -4,6 +4,15 @@ export type Difficulty = 'easy' | 'normal' | 'hard';
 export type GameMode = 'classic' | 'forever';
 export type GamePhase = 'home' | 'playing' | 'revealing' | 'gameover';
 
+export interface EasyDistractorMetadata {
+  category: WorkCategory;
+  title: string;
+  creator: string;
+  slug?: string;
+  pageId?: number;
+  image?: string;
+}
+
 export interface CulturalItem {
   id: string;
   category: WorkCategory;
@@ -24,6 +33,7 @@ export interface CulturalItem {
   altTitles?: string[];
   altCreators?: string[];
   wikiExtract?: string;
+  mpDistractors?: EasyDistractorMetadata[];
 }
 
 export interface EasyRoundOptions {
@@ -33,6 +43,10 @@ export interface EasyRoundOptions {
     creator: string;
     label: string;
     isCorrect: boolean;
+    category?: WorkCategory;
+    slug?: string;
+    pageId?: number;
+    image?: string;
   }[];
 }
 
@@ -42,6 +56,7 @@ export interface RoundGuess {
   hintsUsed: number;
   isEasyChoice?: boolean;
   shownDistractorKeys?: string[];
+  shownDistractors?: EasyDistractorMetadata[];
 }
 
 export interface RoundResult {
