@@ -65,17 +65,18 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
 
-            {/* HP in Forever Mode OR Round in Classic Mode */}
-            {gameMode === 'forever' ? (
+            {/* Round Indicator (Always visible in both Classic and Forever before every guess) */}
+            <div className="bg-[#1a0b04] border-2 border-[#542509] px-2 py-0.5 rounded text-[10px] font-pixel-title text-[#fcd34d]">
+              {gameMode === 'forever' ? `RND ${roundIndex + 1}` : `RND ${roundIndex + 1}/${totalRounds}`}
+            </div>
+
+            {/* HP in Forever Mode */}
+            {gameMode === 'forever' && (
               <div className="flex items-center gap-1.5 bg-[#1a0b04] border-2 border-[#542509] px-2.5 py-0.5 rounded">
                 <span className="text-xs">❤️</span>
                 <span className="font-pixel-title text-[10px] text-rose-300">
                   {currentHp} HP
                 </span>
-              </div>
-            ) : (
-              <div className="bg-[#1a0b04] border-2 border-[#542509] px-2 py-0.5 rounded text-[10px] font-pixel-title text-[#fcd34d]">
-                RND {roundIndex + 1}/{totalRounds}
               </div>
             )}
 

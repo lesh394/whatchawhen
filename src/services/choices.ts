@@ -351,12 +351,24 @@ export interface EasyDistractorSource {
   title: string;
   creator: string;
   id?: string;
+  year?: number;
+  slug?: string;
+}
+
+export interface EasyOptionsConfig {
+  usedCounts?: Readonly<Record<string, number>>;
+  futureTargetKeys?: ReadonlySet<string>;
+}
+
+export function toEasyOptionKey(title: string, creator: string): string {
+  return `${(title || '').trim().toLowerCase()}--${(creator || '').trim().toLowerCase()}`;
 }
 
 /**
  * Generates varied 4 multiple-choice options for Easy mode.
  * Draws distractors from the live random pool first, only falling back to static/stored
  * distractors if fewer than 3 live items are available.
+ * Deprioritizes recently shown distractors (`usedCounts`) so options don't repeat across rounds.
  * When `deterministicSeed` is supplied (Multiplayer mode), canonical sorting + Mulberry32
  * produces the exact same year choices, distractors, and button order across every player.
  */
@@ -364,9 +376,11 @@ export function generateEasyOptions(
   targetItem: CulturalItem,
   livePoolItems: readonly EasyDistractorSource[],
   deterministicSeed?: string,
-  fallbackCatalogItems: readonly CulturalItem[] = []
+  fallbackCatalogItems: readonly CulturalItem[] = [],
+  config: EasyOptionsConfig = {}
 ): EasyRoundOptions {
   const rng = deterministicSeed ? createSeededRng(deterministicSeed) : Math.random;
+  const { usedCounts = {}, futureTargetKeys } = config;
 
   // 1. Dynamic Year Generation with randomized offset combinations
   const yearsSet = new Set<number>();
@@ -436,7 +450,7 @@ export function generateEasyOptions(
     const map = new Map<string, { title: string; creator: string }>();
     for (const entry of items || []) {
       if (!isEligibleDistractor(entry, allowSameCreator)) continue;
-      const key = `${entry.title.trim().toLowerCase()}--${entry.creator.trim().toLowerCase()}`;
+      const key = toEasyOptionKey(entry.title, entry.creator);
       if (!map.has(key)) {
         map.set(key, { title: entry.title.trim(), creator: entry.creator.trim() });
       }
@@ -452,12 +466,32 @@ export function generateEasyOptions(
   const seenKeys = new Set<string>();
 
   const pickFrom = (list: { title: string; creator: string }[]) => {
-    for (const d of seededShuffle(list, rng)) {
-      const key = `${d.title.toLowerCase()}--${d.creator.toLowerCase()}`;
-      if (!seenKeys.has(key)) {
-        seenKeys.add(key);
-        chosenDistractors.push(d);
-        if (chosenDistractors.length >= 3) break;
+    // Partition by (usage count, upcoming manifest target) so fresh distractors always appear before repeats
+    const buckets = new Map<number, { title: string; creator: string }[]>();
+    for (const d of list) {
+      const key = toEasyOptionKey(d.title, d.creator);
+      const count = usedCounts[key] || 0;
+      const futurePenalty = futureTargetKeys?.has(key) ? 1 : 0;
+      const rankScore = count * 2 + futurePenalty;
+      const bucket = buckets.get(rankScore);
+      if (bucket) {
+        bucket.push(d);
+      } else {
+        buckets.set(rankScore, [d]);
+      }
+    }
+
+    const sortedRanks = Array.from(buckets.keys()).sort((a, b) => a - b);
+    for (const rank of sortedRanks) {
+      if (chosenDistractors.length >= 3) break;
+      const bucket = buckets.get(rank)!;
+      for (const d of seededShuffle(bucket, rng)) {
+        const key = toEasyOptionKey(d.title, d.creator);
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          chosenDistractors.push(d);
+          if (chosenDistractors.length >= 3) break;
+        }
       }
     }
   };
@@ -506,6 +540,107 @@ export function generateEasyOptions(
     years,
     identifications,
   };
+}
+
+/**
+ * Deterministically generates Multiplayer Easy choices across rounds 0..roundIndex so
+ * distractors never repeat back-to-back, future rounds aren't spoiled early, and all
+ * players in the same room still receive the exact same 4 choices on every round.
+ */
+export function generateMultiplayerEasyOptionsForRound(
+  targetItem: CulturalItem,
+  challenge: {
+    id: string;
+    manifest?: readonly EasyDistractorSource[];
+    distractors?: readonly EasyDistractorSource[];
+  },
+  roundIndex: number,
+  fallbackLivePool: readonly EasyDistractorSource[],
+  fallbackCatalogItems: readonly CulturalItem[]
+): EasyRoundOptions {
+  const lockedRoomPool: EasyDistractorSource[] = [
+    ...(challenge.distractors || []),
+    ...(challenge.manifest || []),
+  ];
+
+  const targetTitleLower = targetItem.title.trim().toLowerCase();
+  const matchingLockedCount = new Set(
+    lockedRoomPool
+      .filter(
+        d =>
+          (!d.category || d.category === targetItem.category) &&
+          Boolean(d.title) &&
+          Boolean(d.creator) &&
+          d.title.trim().toLowerCase() !== targetTitleLower
+      )
+      .map(d => d.title.trim().toLowerCase())
+  ).size;
+
+  const primaryPool: EasyDistractorSource[] =
+    matchingLockedCount >= 3 ? lockedRoomPool : [...lockedRoomPool, ...fallbackLivePool];
+
+  const manifest = challenge.manifest || [];
+  if (manifest.length === 0 || matchingLockedCount < 3) {
+    return generateEasyOptions(
+      targetItem,
+      primaryPool,
+      `${challenge.id}:easy:${roundIndex}`,
+      fallbackCatalogItems
+    );
+  }
+
+  const usedCounts: Record<string, number> = {};
+  const maxStep = Math.min(roundIndex, manifest.length - 1);
+
+  for (let k = 0; k <= maxStep; k++) {
+    const stepItem: CulturalItem =
+      k === roundIndex
+        ? targetItem
+        : ({
+            ...targetItem,
+            id: `step-${k}-${manifest[k].slug || manifest[k].title}`,
+            category: (manifest[k].category || targetItem.category) as CulturalItem['category'],
+            title: manifest[k].title || targetItem.title,
+            creator: manifest[k].creator || targetItem.creator,
+            year: manifest[k].year || targetItem.year,
+          });
+
+    const futureTargetKeys = new Set<string>();
+    for (let j = k + 1; j < manifest.length; j++) {
+      if (manifest[j].title && manifest[j].creator) {
+        futureTargetKeys.add(toEasyOptionKey(manifest[j].title, manifest[j].creator));
+      }
+    }
+
+    const opts = generateEasyOptions(
+      stepItem,
+      primaryPool,
+      `${challenge.id}:easy:${k}`,
+      fallbackCatalogItems,
+      { usedCounts, futureTargetKeys }
+    );
+
+    if (roundIndex < manifest.length && k === roundIndex) {
+      return opts;
+    }
+
+    const stepKey = toEasyOptionKey(stepItem.title, stepItem.creator);
+    usedCounts[stepKey] = (usedCounts[stepKey] || 0) + 1;
+    for (const choice of opts.identifications) {
+      if (!choice.isCorrect) {
+        const ck = toEasyOptionKey(choice.title, choice.creator);
+        usedCounts[ck] = (usedCounts[ck] || 0) + 1;
+      }
+    }
+  }
+
+  return generateEasyOptions(
+    targetItem,
+    primaryPool,
+    `${challenge.id}:easy:${roundIndex}`,
+    fallbackCatalogItems,
+    { usedCounts }
+  );
 }
 
 const GENERIC_GENRE_PATTERNS =

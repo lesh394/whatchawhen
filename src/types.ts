@@ -41,6 +41,7 @@ export interface RoundGuess {
   rawGuess: string;
   hintsUsed: number;
   isEasyChoice?: boolean;
+  shownDistractorKeys?: string[];
 }
 
 export interface RoundResult {

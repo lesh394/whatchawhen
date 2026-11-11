@@ -11,6 +11,7 @@ import {
   prewarmLiveQueues,
 } from './services/liveWikipediaEngine';
 import { getAllKnownItems } from './services/infinitePool';
+import { toEasyOptionKey } from './services/choices';
 import { evaluateRound } from './services/scoring';
 import { fetchWikiSummary } from './services/wikipedia';
 import { sounds } from './services/sound';
@@ -103,6 +104,9 @@ export function App() {
 
   // Forever Survival Mode State
   const [currentHp, setCurrentHp] = useState<number>(100);
+
+  // Track Easy choices shown across rounds/games in Solo so distractors don't repeat often
+  const [easyUsedCounts, setEasyUsedCounts] = useState<Record<string, number>>({});
 
   // Audio & Modals
   const [isMuted, setIsMuted] = useState<boolean>(() => sounds.getMuted());
@@ -390,6 +394,19 @@ export function App() {
     // Update streak multiplier for the next round
     setStreakMultiplier(evaluated.newStreak);
 
+    // Record Easy options shown this round so Solo distractors don't repeat back-to-back
+    if (difficulty === 'easy') {
+      setEasyUsedCounts(prev => {
+        const next = { ...prev };
+        const targetKey = toEasyOptionKey(currentItem.title, currentItem.creator);
+        next[targetKey] = (next[targetKey] || 0) + 1;
+        for (const key of guess.shownDistractorKeys || []) {
+          next[key] = (next[key] || 0) + 1;
+        }
+        return next;
+      });
+    }
+
     setLatestResult(roundRes);
     setResults(prev => [...prev, roundRes]);
     setGamePhase('revealing');
@@ -513,12 +530,14 @@ export function App() {
             key={`${roundItems[roundIndex % roundItems.length].id}-${roundIndex}-${difficulty}`}
             item={roundItems[roundIndex % roundItems.length]}
             gameCategory={category}
+            gameMode={gameMode}
             difficulty={difficulty}
             hintTokens={hintTokens}
             onUseHint={handleUseHint}
             onSubmitGuess={handleSubmitGuess}
             allItems={autocompleteItems}
             easyLivePool={easyLivePool}
+            easyUsedCounts={easyUsedCounts}
             fallbackCatalogItems={CULTURAL_ITEMS}
             challenge={activeChallenge}
             roundIndex={roundIndex}

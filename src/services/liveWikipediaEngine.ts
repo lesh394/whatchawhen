@@ -511,11 +511,12 @@ const MAX_QUEUE_ADD_PER_BATCH = 3;
 export async function refillLiveQueue(
   category: Category,
   minQueueSize: number = 6,
-  minDistinctCreators: number = 6
+  minDistinctCreators: number = 10,
+  minBankSize: number = 20
 ): Promise<void> {
   if (category === 'everything') {
     for (const cat of WORK_CATEGORIES) {
-      await refillLiveQueue(cat, minQueueSize, minDistinctCreators);
+      await refillLiveQueue(cat, minQueueSize, minDistinctCreators, minBankSize);
     }
     return;
   }
@@ -523,7 +524,7 @@ export async function refillLiveQueue(
   const needsQueue = () => liveQueue[category].length < minQueueSize;
   const needsCreators = () =>
     countDistinctCreators(liveDistractorBank[category]) < minDistinctCreators ||
-    liveDistractorBank[category].length < 8;
+    liveDistractorBank[category].length < minBankSize;
 
   if (!needsQueue() && !needsCreators()) return;
 
@@ -539,9 +540,9 @@ export async function refillLiveQueue(
       liveQueue[category].map(it => it.creator.trim().toLowerCase())
     );
 
-    for (let attempt = 0; attempt < 5 && (needsQueue() || needsCreators()); attempt++) {
+    for (let attempt = 0; attempt < 7 && (needsQueue() || needsCreators()); attempt++) {
       const preferDiverseArt = needsCreators();
-      const batch = await fetchLiveBatch(category, Math.random, attempt >= 3, preferDiverseArt);
+      const batch = await fetchLiveBatch(category, Math.random, attempt >= 4, preferDiverseArt);
       const fresh = shuffleInPlace(
         batch.filter(it => !queuedSlugs.has(it.wikiSlug) && !seenSlugsSession.has(it.wikiSlug))
       );
@@ -606,8 +607,8 @@ export async function fetchLiveRandomItem(
 
 /**
  * Returns the next Solo live round item.
- * Ensures both the live queue AND a diverse live distractor bank (>= 6 distinct creators)
- * are stocked BEFORE returning Round 1 so Easy choices never start from stored lists.
+ * Ensures both the live queue AND a large diverse live distractor bank (>= 10 distinct creators, >= 20 works)
+ * are stocked BEFORE returning Round 1 so Easy choices never repeat or fall back to stored lists.
  */
 export async function getNextLiveRoundItem(
   category: Category,
@@ -621,18 +622,22 @@ export async function getNextLiveRoundItem(
 
   if (
     liveQueue[concreteCategory].length === 0 ||
-    countDistinctCreators(liveDistractorBank[concreteCategory]) < 6 ||
-    liveDistractorBank[concreteCategory].length < 8
+    countDistinctCreators(liveDistractorBank[concreteCategory]) < 10 ||
+    liveDistractorBank[concreteCategory].length < 20
   ) {
-    await refillLiveQueue(concreteCategory, 6, 6);
+    await refillLiveQueue(concreteCategory, 6, 10, 20);
   }
 
   while (liveQueue[concreteCategory].length > 0) {
     const fetched = liveQueue[concreteCategory].shift()!;
     if (!seenSlugs.has(fetched.id) && !seenSlugs.has(fetched.wikiSlug)) {
       seenSlugsSession.add(fetched.wikiSlug);
-      if (liveQueue[concreteCategory].length < 4) {
-        setTimeout(() => refillLiveQueue(concreteCategory, 6, 6).catch(() => {}), 320);
+      if (
+        liveQueue[concreteCategory].length < 4 ||
+        liveDistractorBank[concreteCategory].length < 26 ||
+        countDistinctCreators(liveDistractorBank[concreteCategory]) < 12
+      ) {
+        setTimeout(() => refillLiveQueue(concreteCategory, 6, 12, 26).catch(() => {}), 320);
       }
       if (fetched.category === 'books') return await resolveSafeBookCoverItem(fetched);
       if (fetched.category === 'music') return await resolveSafeMusicCoverItem(fetched);
@@ -643,7 +648,7 @@ export async function getNextLiveRoundItem(
   // Last-resort direct fetch before touching stored catalog
   const liveDirect = await fetchLiveRandomItem(concreteCategory, seenSlugs);
   if (liveDirect) {
-    setTimeout(() => refillLiveQueue(concreteCategory, 6, 6).catch(() => {}), 320);
+    setTimeout(() => refillLiveQueue(concreteCategory, 6, 12, 26).catch(() => {}), 320);
     return liveDirect;
   }
 
@@ -690,11 +695,11 @@ export function prewarmLiveQueues(priorityCategory?: Category) {
       let cat: WorkCategory | null;
       while ((cat = nextTarget()) !== null) {
         const needsWarm =
-          liveQueue[cat].length < 3 ||
-          countDistinctCreators(liveDistractorBank[cat]) < 6 ||
-          liveDistractorBank[cat].length < 8;
+          liveQueue[cat].length < 4 ||
+          countDistinctCreators(liveDistractorBank[cat]) < 10 ||
+          liveDistractorBank[cat].length < 22;
         if (needsWarm) {
-          await refillLiveQueue(cat, 3, 6).catch(() => {});
+          await refillLiveQueue(cat, 6, 10, 22).catch(() => {});
           await new Promise(r => setTimeout(r, 320));
         }
       }
@@ -764,18 +769,12 @@ export async function buildMultiplayerLiveRoomPool(
   hydratedItems: CulturalItem[];
 }> {
   const targetRoundCount = gameMode === 'forever' ? 10 : 5;
-  const targetDistractorCount =
-    category === 'everything'
-      ? gameMode === 'forever'
-        ? 6
-        : 7
-      : gameMode === 'forever'
-      ? 4
-      : 5;
+  const targetDistractorCount = gameMode === 'forever' ? 10 : 15;
   const totalNeeded = targetRoundCount + targetDistractorCount;
 
   const pickedItems: CulturalItem[] = [];
   const usedSlugs = new Set<string>();
+  const creatorCounts = new Map<string, number>();
 
   const targetCats: WorkCategory[] =
     category === 'everything' ? ['music', 'books', 'art'] : [category];
@@ -783,16 +782,17 @@ export async function buildMultiplayerLiveRoomPool(
   // Fetch fresh batches directly from live Wikipedia (never starting from stored CULTURAL_ITEMS!)
   // Ensure every active category reaches diverse creators and works from different batches
   const targetPerCat =
-    category === 'everything' ? Math.max(7, Math.ceil(targetRoundCount / 3) + 4) : totalNeeded;
-  const maxPasses = category === 'everything' ? 3 : 5;
-  const maxFromSingleBatch = category === 'everything' ? 6 : 5;
+    category === 'everything' ? (gameMode === 'forever' ? 8 : 9) : totalNeeded;
+  const minCreatorsPerCat = category === 'everything' ? 5 : 8;
+  const maxPasses = category === 'everything' ? 4 : 6;
+  const maxFromSingleBatch = 6;
 
   for (let pass = 0; pass < maxPasses; pass++) {
     let allSatisfied = true;
     for (const workCat of targetCats) {
       const catItems = pickedItems.filter(it => it.category === workCat);
       const needsMore =
-        catItems.length < targetPerCat || countDistinctCreators(catItems) < 6;
+        catItems.length < targetPerCat || countDistinctCreators(catItems) < minCreatorsPerCat;
       if (!needsMore) continue;
 
       allSatisfied = false;
@@ -801,7 +801,12 @@ export async function buildMultiplayerLiveRoomPool(
       let addedThisBatch = 0;
       for (const item of shuffled) {
         if (usedSlugs.has(item.wikiSlug)) continue;
+        const cKey = item.creator.trim().toLowerCase();
+        const existingCount = creatorCounts.get(cKey) || 0;
+        if (pass < maxPasses - 1 && existingCount >= 2) continue;
+
         usedSlugs.add(item.wikiSlug);
+        creatorCounts.set(cKey, existingCount + 1);
         pickedItems.push(item);
         addedThisBatch++;
         if (addedThisBatch >= maxFromSingleBatch) break;
@@ -821,6 +826,7 @@ export async function buildMultiplayerLiveRoomPool(
       art: shuffleInPlace(pickedItems.filter(i => i.category === 'art')),
     };
     const roundCounts: Record<WorkCategory, number> = { music: 0, books: 0, art: 0 };
+    const distractorCounts: Record<WorkCategory, number> = { music: 0, books: 0, art: 0 };
     const seenCreatorsByCat: Record<WorkCategory, Set<string>> = {
       music: new Set(),
       books: new Set(),
@@ -829,8 +835,12 @@ export async function buildMultiplayerLiveRoomPool(
     const offset = Math.floor(Math.random() * 3);
     for (let i = 0; rawRoundItems.length < targetRoundCount; i++) {
       const cat = WORK_CATEGORIES[(i + offset) % 3];
-      const next = byCat[cat].shift();
-      if (next) {
+      const pool = byCat[cat];
+      if (pool.length > 0) {
+        const distinctIdx = pool.findIndex(
+          it => !seenCreatorsByCat[cat].has(it.creator.trim().toLowerCase())
+        );
+        const next = pool.splice(distinctIdx >= 0 ? distinctIdx : 0, 1)[0];
         rawRoundItems.push(next);
         roundCounts[cat]++;
         seenCreatorsByCat[cat].add(next.creator.trim().toLowerCase());
@@ -839,13 +849,23 @@ export async function buildMultiplayerLiveRoomPool(
       }
     }
 
-    // Balance distractors across categories so even a 1-round category has >= 3 distractors
+    // Balance distractors so every category has >= 3 distractors first, then matches 3x round demand
     while (
       rawDistractorItems.length < targetDistractorCount &&
       (byCat.music.length || byCat.books.length || byCat.art.length)
     ) {
       const availableCats = WORK_CATEGORIES.filter(c => byCat[c].length > 0);
-      availableCats.sort((a, b) => roundCounts[a] - roundCounts[b]);
+      availableCats.sort((a, b) => {
+        const aNeedsBase = roundCounts[a] > 0 && distractorCounts[a] < 3 ? 1 : 0;
+        const bNeedsBase = roundCounts[b] > 0 && distractorCounts[b] < 3 ? 1 : 0;
+        if (aNeedsBase !== bNeedsBase) return bNeedsBase - aNeedsBase;
+        if (aNeedsBase && distractorCounts[a] !== distractorCounts[b]) {
+          return distractorCounts[a] - distractorCounts[b];
+        }
+        const aDeficit = roundCounts[a] * 3 - distractorCounts[a];
+        const bDeficit = roundCounts[b] * 3 - distractorCounts[b];
+        return bDeficit - aDeficit;
+      });
       const chosenCat = availableCats[0];
       const pool = byCat[chosenCat];
       const distinctIdx = pool.findIndex(
@@ -853,16 +873,26 @@ export async function buildMultiplayerLiveRoomPool(
       );
       const picked = pool.splice(distinctIdx >= 0 ? distinctIdx : 0, 1)[0];
       rawDistractorItems.push(picked);
-      roundCounts[chosenCat]++;
+      distractorCounts[chosenCat]++;
       seenCreatorsByCat[chosenCat].add(picked.creator.trim().toLowerCase());
     }
   } else {
     const shuffled = shuffleInPlace([...pickedItems]);
-    rawRoundItems = shuffled.slice(0, targetRoundCount);
-    rawDistractorItems = shuffled.slice(
-      targetRoundCount,
-      targetRoundCount + targetDistractorCount
-    );
+    const roundCreators = new Set<string>();
+    const remaining: CulturalItem[] = [];
+    for (const item of shuffled) {
+      const cKey = item.creator.trim().toLowerCase();
+      if (rawRoundItems.length < targetRoundCount && !roundCreators.has(cKey)) {
+        roundCreators.add(cKey);
+        rawRoundItems.push(item);
+      } else {
+        remaining.push(item);
+      }
+    }
+    while (rawRoundItems.length < targetRoundCount && remaining.length > 0) {
+      rawRoundItems.push(remaining.shift()!);
+    }
+    rawDistractorItems = remaining.slice(0, targetDistractorCount);
   }
 
   // Offline emergency tail ONLY if Wikipedia failed to provide enough live rounds

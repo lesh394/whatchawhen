@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Category, CulturalItem, RoundGuess, Difficulty } from '../types';
+import { Category, CulturalItem, RoundGuess, Difficulty, GameMode } from '../types';
 import { CATEGORY_THEMES } from '../config/themes';
 import { 
   ZoomIn, HelpCircle, ChevronsLeft, ChevronsRight, 
@@ -16,8 +16,10 @@ import {
 } from '../services/wikipedia';
 import {
   generateEasyOptions,
+  generateMultiplayerEasyOptionsForRound,
   generateQuirkyHint,
   EasyDistractorSource,
+  toEasyOptionKey,
 } from '../services/choices';
 import { ImageZoomModal } from './ImageZoomModal';
 import { BookCoverMask } from './BookCoverMask';
@@ -27,12 +29,14 @@ import { RetroAdModal } from './RetroAdModal';
 interface GamePlayRoundProps {
   item: CulturalItem;
   gameCategory?: Category;
+  gameMode?: GameMode;
   difficulty: Difficulty;
   hintTokens: number;
   onUseHint: () => void;
   onSubmitGuess: (guess: RoundGuess) => void;
   allItems: CulturalItem[];
   easyLivePool?: EasyDistractorSource[];
+  easyUsedCounts?: Readonly<Record<string, number>>;
   fallbackCatalogItems?: CulturalItem[];
   challenge?: MultiplayerChallenge | null;
   roundIndex?: number;
@@ -41,12 +45,14 @@ interface GamePlayRoundProps {
 export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
   item,
   gameCategory,
+  gameMode = 'classic',
   difficulty,
   hintTokens,
   onUseHint,
   onSubmitGuess,
   allItems,
   easyLivePool,
+  easyUsedCounts,
   fallbackCatalogItems,
   challenge,
   roundIndex,
@@ -58,32 +64,19 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
   // Easy mode choices computed once per round item & difficulty (never resets mid-round!)
   const easyOptions = useMemo(() => {
     if (difficulty !== 'easy') return null;
-    const easySeed =
-      challenge && typeof roundIndex === 'number'
-        ? `${challenge.id}:easy:${roundIndex}`
-        : undefined;
-    const targetTitleLower = item.title.trim().toLowerCase();
-    const lockedRoomPool: EasyDistractorSource[] = challenge
-      ? [...(challenge.distractors || []), ...(challenge.manifest || [])]
-      : [];
-    const matchingLockedCount = new Set(
-      lockedRoomPool
-        .filter(
-          d =>
-            (!d.category || d.category === item.category) &&
-            Boolean(d.title) &&
-            Boolean(d.creator) &&
-            d.title.trim().toLowerCase() !== targetTitleLower
-        )
-        .map(d => d.title.trim().toLowerCase())
-    ).size;
-    const primaryPool: EasyDistractorSource[] = challenge
-      ? matchingLockedCount >= 3
-        ? lockedRoomPool
-        : [...lockedRoomPool, ...(easyLivePool || [])]
-      : easyLivePool || [];
-    return generateEasyOptions(item, primaryPool, easySeed, fallbackCatalogItems || []);
-  }, [item, difficulty, easyLivePool, fallbackCatalogItems, challenge, roundIndex]);
+    if (challenge && typeof roundIndex === 'number') {
+      return generateMultiplayerEasyOptionsForRound(
+        item,
+        challenge,
+        roundIndex,
+        easyLivePool || [],
+        fallbackCatalogItems || []
+      );
+    }
+    return generateEasyOptions(item, easyLivePool || [], undefined, fallbackCatalogItems || [], {
+      usedCounts: easyUsedCounts,
+    });
+  }, [item, difficulty, easyLivePool, easyUsedCounts, fallbackCatalogItems, challenge, roundIndex]);
 
   const initialYear = difficulty === 'easy' && easyOptions ? easyOptions.years[0] : defaultYear;
 
@@ -244,21 +237,36 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
 
     const finalYear = difficulty === 'easy' ? selectedYear : commitTypedYear();
     const finalGuessText = difficulty === 'easy' ? selectedEasyId : typedGuess.trim();
+    const shownDistractorKeys =
+      difficulty === 'easy' && easyOptions
+        ? easyOptions.identifications
+            .filter(o => !o.isCorrect)
+            .map(o => toEasyOptionKey(o.title, o.creator))
+        : undefined;
 
     onSubmitGuess({
       yearGuess: finalYear,
       rawGuess: finalGuessText,
       hintsUsed: hasUsedHintInRound ? 1 : 0,
       isEasyChoice: difficulty === 'easy',
+      shownDistractorKeys,
     });
   };
 
   return (
     <div className="w-full flex-1 max-w-4xl mx-auto px-4 py-4 flex flex-col items-center relative z-10 select-none">
       
-      {/* Clean Category Badge & Hint Action */}
+      {/* Clean Round, Category Badge & Hint Action */}
       <div className="w-full flex items-center justify-between gap-2 mb-3 text-xs">
         <div className="flex items-center gap-2 flex-wrap">
+          {typeof roundIndex === 'number' && (
+            <span className="px-2.5 py-1 bg-[#3a1b0b] border-2 border-[#fcd34d]/75 rounded text-[#fcd34d] font-pixel-title text-[9px] shadow">
+              {gameMode === 'forever'
+                ? `ROUND ${roundIndex + 1}`
+                : `ROUND ${roundIndex + 1}/5`}
+            </span>
+          )}
+
           <span className="px-2.5 py-1 bg-[#2b1408] border-2 border-[#804a23] rounded text-[#ffe2a0] font-pixel-title text-[9px]">
             {gameCategory === 'everything'
               ? `🎲 EVERYTHING • ${item.category.toUpperCase()}`
@@ -501,25 +509,46 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
             {difficulty === 'easy' && easyOptions ? (
               <div className="grid grid-cols-2 gap-1.5 my-1">
                 {easyOptions.identifications.map((opt, i) => (
-                  <button
-                    key={i}
-                    onClick={() => {
-                      sounds.playTick();
-                      setSelectedEasyId(opt.label);
-                    }}
-                    className={`p-2 rounded text-left pixel-btn cursor-pointer flex flex-col justify-between ${
-                      selectedEasyId === opt.label
-                        ? 'bg-[#5c993d] border-2 border-[#97e072] text-white shadow'
-                        : 'bg-[#29160d] border border-[#542813] text-[#ffe2a0] hover:bg-[#3d2012]'
-                    }`}
+                  <div
+                    key={`${opt.title}-${opt.creator}-${i}`}
+                    className="relative group hover:z-40 focus-within:z-40"
                   >
-                    <div className="font-pixel-title text-[10px] leading-snug truncate">
-                      {opt.title}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playTick();
+                        setSelectedEasyId(opt.label);
+                      }}
+                      aria-label={`${opt.title} by ${opt.creator}`}
+                      className={`w-full h-full p-2 rounded text-left pixel-btn cursor-pointer flex flex-col justify-between gap-0.5 ${
+                        selectedEasyId === opt.label
+                          ? 'bg-[#5c993d] border-2 border-[#97e072] text-white shadow'
+                          : 'bg-[#29160d] border border-[#542813] text-[#ffe2a0] hover:bg-[#3d2012]'
+                      }`}
+                    >
+                      <div className="font-pixel-title text-[10px] leading-snug line-clamp-2 break-words">
+                        {opt.title}
+                      </div>
+                      <div className="text-[8px] font-pixel-ui opacity-75 truncate">
+                        by {opt.creator}
+                      </div>
+                    </button>
+
+                    {/* Instant hover/focus popover showing complete untruncated title & creator */}
+                    <div
+                      role="tooltip"
+                      className={`hidden group-hover:block group-focus-within:block absolute bottom-full mb-2 z-50 w-max min-w-full max-w-[260px] sm:max-w-xs px-2.5 py-2 rounded bg-[#140903] border-2 border-[#fcd34d] shadow-2xl pointer-events-none ${
+                        i % 2 === 1 ? 'right-0' : 'left-0'
+                      }`}
+                    >
+                      <div className="font-pixel-title text-[10px] leading-relaxed text-[#ffe599] whitespace-normal break-words">
+                        {opt.title}
+                      </div>
+                      <div className="text-[9px] font-pixel-ui text-[#d7974e] mt-1 whitespace-normal break-words">
+                        by {opt.creator}
+                      </div>
                     </div>
-                    <div className="text-[8px] font-pixel-ui opacity-75 truncate">
-                      by {opt.creator}
-                    </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             ) : (
