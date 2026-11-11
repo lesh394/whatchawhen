@@ -516,7 +516,7 @@ ${rows.join('\n')}${standLine}${challengeFooter}`;
               type="text"
               value={pasteInput}
               onChange={e => setPasteInput(e.target.value)}
-              placeholder="Paste any friend's Result Link or WW1:/WW2: Score Code"
+              placeholder="Paste any friend's Result Link or Score Code"
               className="flex-1 min-w-0 px-3 py-2 rounded bg-[#140903] border-2 border-[#542813] text-amber-100 placeholder-[#8c603a] font-pixel-body text-xs focus:outline-none focus:border-amber-400"
             />
             <button

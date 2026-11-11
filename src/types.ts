@@ -11,6 +11,7 @@ export interface CulturalItem {
   creator: string;
   year: number;
   wikiSlug: string;
+  wikiPageId?: number;
   image: string;
   highResImage?: string;
   altCoverApplied?: boolean;

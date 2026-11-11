@@ -7,7 +7,7 @@ import {
   getLivePoolDistractors,
   getNextLiveRoundItem,
   getSeededChallengeRoundItem,
-  hydrateMultiplayerItems,
+  hydrateMultiplayerChallenge,
   prewarmLiveQueues,
 } from './services/liveWikipediaEngine';
 import { getAllKnownItems } from './services/infinitePool';
@@ -234,25 +234,37 @@ export function App() {
     try {
       let firstItem: CulturalItem;
       if (targetChallenge) {
+        let resolvedChallenge = targetChallenge;
         let hydratedItems =
           hydratedManifestRef.current.challengeId === targetChallenge.id
             ? hydratedManifestRef.current.items
             : [];
 
+        const needsHydration =
+          hydratedItems.length === 0 ||
+          (targetChallenge.manifest || []).some(m => !m.title) ||
+          (targetChallenge.distractors || []).some(d => !d.title);
+
         if (
-          hydratedItems.length === 0 &&
-          targetChallenge.manifest &&
-          targetChallenge.manifest.length > 0
+          needsHydration &&
+          ((targetChallenge.manifest && targetChallenge.manifest.length > 0) ||
+            (targetChallenge.distractors && targetChallenge.distractors.length > 0))
         ) {
-          hydratedItems = await hydrateMultiplayerItems(targetChallenge);
-          hydratedManifestRef.current = {
-            challengeId: targetChallenge.id,
-            items: hydratedItems,
-          };
+          const hydrated = await hydrateMultiplayerChallenge(targetChallenge);
+          resolvedChallenge = hydrated.challenge;
+          if (hydrated.items.length > 0) {
+            hydratedItems = hydrated.items;
+            hydratedManifestRef.current = {
+              challengeId: targetChallenge.id,
+              items: hydratedItems,
+            };
+          }
+          setActiveChallenge(resolvedChallenge);
+          setDraftChallenge(resolvedChallenge);
         }
 
         firstItem = await getSeededChallengeRoundItem(
-          targetChallenge,
+          resolvedChallenge,
           0,
           hydratedItems
         );

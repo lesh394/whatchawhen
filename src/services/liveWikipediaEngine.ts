@@ -375,6 +375,7 @@ function parseWikiBatchPageToItem(
 
   return {
     id: `wiki-live-${concreteCategory}-${slug}`,
+    wikiPageId: typeof page.pageid === 'number' && page.pageid > 0 ? page.pageid : undefined,
     category: concreteCategory,
     title,
     creator,
@@ -764,7 +765,13 @@ export async function buildMultiplayerLiveRoomPool(
 }> {
   const targetRoundCount = gameMode === 'forever' ? 10 : 5;
   const targetDistractorCount =
-    category === 'everything' ? (gameMode === 'forever' ? 6 : 9) : 8;
+    category === 'everything'
+      ? gameMode === 'forever'
+        ? 6
+        : 7
+      : gameMode === 'forever'
+      ? 4
+      : 5;
   const totalNeeded = targetRoundCount + targetDistractorCount;
 
   const pickedItems: CulturalItem[] = [];
@@ -804,50 +811,83 @@ export async function buildMultiplayerLiveRoomPool(
   }
 
   // Interleave categories evenly in Everything Mix before slicing rounds vs distractors
-  let balancedPool: CulturalItem[] = pickedItems;
+  let rawRoundItems: CulturalItem[] = [];
+  let rawDistractorItems: CulturalItem[] = [];
+
   if (category === 'everything') {
     const byCat: Record<WorkCategory, CulturalItem[]> = {
       music: shuffleInPlace(pickedItems.filter(i => i.category === 'music')),
       books: shuffleInPlace(pickedItems.filter(i => i.category === 'books')),
       art: shuffleInPlace(pickedItems.filter(i => i.category === 'art')),
     };
-    const roundBuckets: CulturalItem[] = [];
+    const roundCounts: Record<WorkCategory, number> = { music: 0, books: 0, art: 0 };
+    const seenCreatorsByCat: Record<WorkCategory, Set<string>> = {
+      music: new Set(),
+      books: new Set(),
+      art: new Set(),
+    };
     const offset = Math.floor(Math.random() * 3);
-    for (let i = 0; roundBuckets.length < targetRoundCount; i++) {
+    for (let i = 0; rawRoundItems.length < targetRoundCount; i++) {
       const cat = WORK_CATEGORIES[(i + offset) % 3];
       const next = byCat[cat].shift();
       if (next) {
-        roundBuckets.push(next);
+        rawRoundItems.push(next);
+        roundCounts[cat]++;
+        seenCreatorsByCat[cat].add(next.creator.trim().toLowerCase());
       } else if (!byCat.music.length && !byCat.books.length && !byCat.art.length) {
         break;
       }
     }
-    const leftovers: CulturalItem[] = [];
-    while (byCat.music.length || byCat.books.length || byCat.art.length) {
-      for (const cat of WORK_CATEGORIES) {
-        const next = byCat[cat].shift();
-        if (next) leftovers.push(next);
-      }
+
+    // Balance distractors across categories so even a 1-round category has >= 3 distractors
+    while (
+      rawDistractorItems.length < targetDistractorCount &&
+      (byCat.music.length || byCat.books.length || byCat.art.length)
+    ) {
+      const availableCats = WORK_CATEGORIES.filter(c => byCat[c].length > 0);
+      availableCats.sort((a, b) => roundCounts[a] - roundCounts[b]);
+      const chosenCat = availableCats[0];
+      const pool = byCat[chosenCat];
+      const distinctIdx = pool.findIndex(
+        it => !seenCreatorsByCat[chosenCat].has(it.creator.trim().toLowerCase())
+      );
+      const picked = pool.splice(distinctIdx >= 0 ? distinctIdx : 0, 1)[0];
+      rawDistractorItems.push(picked);
+      roundCounts[chosenCat]++;
+      seenCreatorsByCat[chosenCat].add(picked.creator.trim().toLowerCase());
     }
-    balancedPool = [...roundBuckets, ...leftovers];
   } else {
-    balancedPool = shuffleInPlace([...pickedItems]);
+    const shuffled = shuffleInPlace([...pickedItems]);
+    rawRoundItems = shuffled.slice(0, targetRoundCount);
+    rawDistractorItems = shuffled.slice(
+      targetRoundCount,
+      targetRoundCount + targetDistractorCount
+    );
   }
 
   // Offline emergency tail ONLY if Wikipedia failed to provide enough live rounds
-  if (balancedPool.length < targetRoundCount) {
+  if (rawRoundItems.length < targetRoundCount) {
     const offlineTail = [...CULTURAL_ITEMS]
       .filter(it => (category === 'everything' || it.category === category) && !usedSlugs.has(it.wikiSlug))
       .sort(() => Math.random() - 0.5);
     for (const it of offlineTail) {
-      if (balancedPool.length >= totalNeeded) break;
-      usedSlugs.add(it.wikiSlug);
-      balancedPool.push(it);
+      if (rawRoundItems.length < targetRoundCount) {
+        usedSlugs.add(it.wikiSlug);
+        rawRoundItems.push(it);
+      } else if (rawDistractorItems.length < targetDistractorCount) {
+        usedSlugs.add(it.wikiSlug);
+        rawDistractorItems.push(it);
+      } else {
+        break;
+      }
     }
   }
 
-  const rawRoundItems = balancedPool.slice(0, targetRoundCount);
-  const rawDistractorItems = balancedPool.slice(targetRoundCount, targetRoundCount + targetDistractorCount);
+  // Snapshot original Wikipedia thumbnails before cover spoiler checks so untouched URLs encode as 0 bytes
+  const origImageById = new Map<string, string>();
+  for (const it of rawRoundItems) {
+    origImageById.set(it.id, it.image);
+  }
 
   // Resolve spoiler covers ONCE on Host (bounded per-chunk timeout so Classic takes ~1-2s & Forever ~2-3s)
   const resolveWithBudget = async (item: CulturalItem, budgetMs: number): Promise<CulturalItem> => {
@@ -886,100 +926,218 @@ export async function buildMultiplayerLiveRoomPool(
     hydratedItems.push(...resolvedChunk);
   }
 
-  const manifest: LockedRoundEntry[] = hydratedItems.map(item => ({
-    slug: item.wikiSlug,
-    title: item.title,
-    creator: item.creator,
-    year: item.year,
-    category: item.category,
-    image: item.image,
-    genre: item.genreOrMovement,
-  }));
+  const manifest: LockedRoundEntry[] = hydratedItems.map(item => {
+    const origUrl = origImageById.get(item.id) || '';
+    const coverChanged = Boolean(item.image && origUrl && item.image !== origUrl);
+    return {
+      slug: item.wikiSlug,
+      title: item.title,
+      creator: item.creator,
+      year: item.year,
+      category: item.category,
+      pageId: item.wikiPageId,
+      image: item.image,
+      coverChanged,
+      genre: item.genreOrMovement,
+    };
+  });
 
   const distractors: LockedDistractorEntry[] = rawDistractorItems.map(item => ({
     category: item.category,
     title: item.title,
     creator: item.creator,
+    pageId: item.wikiPageId,
   }));
 
   return { manifest, distractors, hydratedItems };
 }
 
 /**
- * Hydrates full clue/summary metadata for a room's locked manifest in ONE batched Wikipedia call,
- * while strictly keeping the locked `title`, `creator`, `year`, and pinned `image` verbatim so
- * every friend on the room link gets 100% identical items, covers, and hints.
+ * Hydrates full metadata for both a room's locked `manifest` and its `distractors` using batched
+ * Wikipedia `pageids=` (or legacy `titles=`) lookups, while preserving locked years & swapped covers.
  */
-export async function hydrateMultiplayerItems(
+export async function hydrateMultiplayerChallenge(
   challenge: MultiplayerChallenge
-): Promise<CulturalItem[]> {
+): Promise<{ challenge: MultiplayerChallenge; items: CulturalItem[] }> {
   const manifest = challenge.manifest || [];
-  if (manifest.length === 0) return [];
-
-  const baseItems = manifest.map((entry, idx) =>
-    manifestEntryToBaseItem(entry, challenge.id, idx)
-  );
-
-  // One batched titles= query enriches extracts/hints cleanly for all locked rounds at once
-  const titlesParam = manifest
-    .slice(0, 20)
-    .map(m => m.slug.replace(/_/g, ' '))
-    .join('|');
-  const url =
-    `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(titlesParam)}` +
-    `&prop=pageimages|extracts|description|info&piprop=thumbnail|original&pithumbsize=400` +
-    `&pilicense=any&pilimit=20&exintro=1&explaintext=1&exsentences=3&exlimit=20` +
-    `&inprop=canonicalurl&format=json&origin=*`;
-
-  const data = await fetchJsonThrottled(url, 1);
-  if (!data?.query) {
-    return baseItems;
+  const distractors = challenge.distractors || [];
+  if (manifest.length === 0 && distractors.length === 0) {
+    return { challenge, items: [] };
   }
 
-  const pages = Object.values(data.query.pages || {}) as any[];
-  const pageByNormTitle = new Map<string, any>();
-  for (const p of pages) {
-    if (p?.title) {
-      pageByNormTitle.set(String(p.title).replace(/\s+/g, '_').toLowerCase(), p);
+  const pageIdSet = new Set<number>();
+  for (const m of manifest) {
+    if (m.pageId && m.pageId > 0) pageIdSet.add(m.pageId);
+  }
+  for (const d of distractors) {
+    if (d.pageId && d.pageId > 0) pageIdSet.add(d.pageId);
+  }
+
+  const legacyTitleSet = new Set<string>();
+  for (const m of manifest) {
+    if (!m.pageId && m.slug) {
+      legacyTitleSet.add(m.slug.replace(/_/g, ' '));
     }
   }
-  // Also follow Wikipedia normalization map if titles differed slightly
-  if (Array.isArray(data.query.normalized)) {
-    for (const norm of data.query.normalized) {
-      const targetPage = pageByNormTitle.get(String(norm.to).replace(/\s+/g, '_').toLowerCase());
-      if (targetPage && norm.from) {
-        pageByNormTitle.set(String(norm.from).replace(/\s+/g, '_').toLowerCase(), targetPage);
+
+  const pageById = new Map<number, any>();
+  const pageByNormTitle = new Map<string, any>();
+
+  const storeQueryResult = (data: any) => {
+    if (!data?.query) return;
+    const pages = Object.values(data.query.pages || {}) as any[];
+    for (const p of pages) {
+      if (typeof p?.pageid === 'number' && p.pageid > 0) {
+        pageById.set(p.pageid, p);
+      }
+      if (p?.title) {
+        pageByNormTitle.set(String(p.title).replace(/\s+/g, '_').toLowerCase(), p);
       }
     }
+    if (Array.isArray(data.query.normalized)) {
+      for (const norm of data.query.normalized) {
+        const targetPage = pageByNormTitle.get(String(norm.to).replace(/\s+/g, '_').toLowerCase());
+        if (targetPage && norm.from) {
+          pageByNormTitle.set(String(norm.from).replace(/\s+/g, '_').toLowerCase(), targetPage);
+        }
+      }
+    }
+  };
+
+  const uniqueIds = Array.from(pageIdSet);
+  for (let i = 0; i < uniqueIds.length; i += 20) {
+    const chunk = uniqueIds.slice(i, i + 20);
+    const url =
+      `https://en.wikipedia.org/w/api.php?action=query&pageids=${chunk.join('|')}` +
+      `&prop=pageimages|extracts|description|info&piprop=thumbnail|original&pithumbsize=400` +
+      `&pilicense=any&pilimit=20&exintro=1&explaintext=1&exsentences=3&exlimit=20` +
+      `&inprop=canonicalurl&format=json&origin=*`;
+    const data = await fetchJsonThrottled(url, 3);
+    storeQueryResult(data);
   }
 
-  return baseItems.map((base, idx) => {
-    const entry = manifest[idx];
-    const page = pageByNormTitle.get(entry.slug.replace(/\s+/g, '_').toLowerCase());
-    if (!page) return base;
+  const uniqueLegacyTitles = Array.from(legacyTitleSet);
+  for (let i = 0; i < uniqueLegacyTitles.length; i += 20) {
+    const chunk = uniqueLegacyTitles.slice(i, i + 20);
+    const url =
+      `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(chunk.join('|'))}` +
+      `&prop=pageimages|extracts|description|info&piprop=thumbnail|original&pithumbsize=400` +
+      `&pilicense=any&pilimit=20&exintro=1&explaintext=1&exsentences=3&exlimit=20` +
+      `&inprop=canonicalurl&format=json&origin=*`;
+    const data = await fetchJsonThrottled(url, 2);
+    storeQueryResult(data);
+  }
 
-    const extract = String(page.extract || '');
-    const desc = String(page.description || '');
-    const resolvedImage = entry.image || page.thumbnail?.source || base.image;
+  const hydratedItems: CulturalItem[] = [];
+  const nextManifest: LockedRoundEntry[] = manifest.map((entry, idx) => {
+    const page =
+      (entry.pageId ? pageById.get(entry.pageId) : undefined) ||
+      (entry.slug ? pageByNormTitle.get(entry.slug.replace(/\s+/g, '_').toLowerCase()) : undefined);
 
-    return {
+    const pageTitle = page?.title ? String(page.title) : '';
+    const desc = String(page?.description || '');
+    const extract = String(page?.extract || '');
+    const slug =
+      entry.slug ||
+      (pageTitle ? pageTitle.replace(/\s+/g, '_') : `wiki_${entry.pageId || idx}`);
+    const title =
+      entry.title ||
+      (pageTitle ? cleanWikipediaTitle(pageTitle) : slug.replace(/_/g, ' '));
+    const creator =
+      entry.creator ||
+      (page
+        ? extractCreator(desc, extract, entry.category)
+        : entry.category === 'music'
+        ? 'Acclaimed Musician'
+        : entry.category === 'books'
+        ? 'Acclaimed Author'
+        : 'Master Painter');
+
+    const coverChanged = Boolean(entry.coverChanged && entry.image);
+    const resolvedImage = coverChanged
+      ? entry.image || ''
+      : entry.image || page?.thumbnail?.source || '';
+    const highResImage = coverChanged
+      ? resolvedImage
+      : entry.image || page?.original?.source || resolvedImage;
+    const genre = entry.genre || sanitizeWikiGenre(desc, entry.category, entry.year);
+    const resolvedPageId =
+      entry.pageId || (typeof page?.pageid === 'number' && page.pageid > 0 ? page.pageid : undefined);
+
+    const hydratedEntry: LockedRoundEntry = {
+      slug,
+      title,
+      creator,
+      year: entry.year,
+      category: entry.category,
+      pageId: resolvedPageId,
+      image: resolvedImage || undefined,
+      coverChanged,
+      genre,
+    };
+
+    const base = manifestEntryToBaseItem(hydratedEntry, challenge.id, idx);
+    const altTitles = Array.from(
+      new Set([title, pageTitle, slug.replace(/_/g, ' ')].filter(Boolean))
+    );
+    hydratedItems.push({
       ...base,
-      image: resolvedImage,
-      highResImage: entry.image || page.original?.source || resolvedImage,
+      wikiPageId: resolvedPageId,
+      image: resolvedImage || base.image,
+      highResImage: highResImage || base.image,
       altCoverApplied: Boolean(resolvedImage),
-      genreOrMovement: entry.genre || sanitizeWikiGenre(desc, entry.category, entry.year),
+      genreOrMovement: genre,
       hint1: sanitizeWikiHint({
         category: entry.category,
-        title: entry.title,
-        creator: entry.creator,
+        title,
+        creator,
         year: entry.year,
         rawDescription: desc,
         wikiExtract: extract,
       }),
-      trivia: extract ? extract.slice(0, 220) + (extract.length > 220 ? '...' : '') : base.trivia,
+      trivia: extract
+        ? extract.slice(0, 220) + (extract.length > 220 ? '...' : '')
+        : base.trivia,
       wikiExtract: extract || base.wikiExtract,
-    };
+      altTitles,
+      altCreators: [creator],
+    });
+
+    return hydratedEntry;
   });
+
+  const nextDistractors: LockedDistractorEntry[] = distractors
+    .map(d => {
+      if (d.title && d.creator) return d;
+      const page = d.pageId ? pageById.get(d.pageId) : undefined;
+      if (!page?.title) return d;
+      const pageTitle = String(page.title);
+      const desc = String(page.description || '');
+      const extract = String(page.extract || '');
+      return {
+        category: d.category,
+        pageId: d.pageId,
+        title: d.title || cleanWikipediaTitle(pageTitle),
+        creator: d.creator || extractCreator(desc, extract, d.category),
+      };
+    })
+    .filter(d => Boolean(d.title && d.creator));
+
+  return {
+    challenge: {
+      ...challenge,
+      manifest: nextManifest.length > 0 ? nextManifest : undefined,
+      distractors: nextDistractors.length > 0 ? nextDistractors : undefined,
+    },
+    items: hydratedItems,
+  };
+}
+
+export async function hydrateMultiplayerItems(
+  challenge: MultiplayerChallenge
+): Promise<CulturalItem[]> {
+  const res = await hydrateMultiplayerChallenge(challenge);
+  return res.items;
 }
 
 /**
@@ -1001,11 +1159,14 @@ export async function getSeededChallengeRoundItem(
     return manifestEntryToBaseItem(challenge.manifest[roundIndex], challenge.id, roundIndex);
   }
 
-  const manifestSlugs = new Set((challenge.manifest || []).map(m => m.slug));
+  const manifestSlugs = new Set((challenge.manifest || []).map(m => m.slug).filter(Boolean));
+  const manifestPageIds = new Set(
+    (challenge.manifest || []).map(m => m.pageId).filter((id): id is number => Boolean(id))
+  );
   const category = challenge.category;
   const challengeSeed = challenge.id;
 
-  // Deterministic live Wikipedia fetch for Round 16+ in Forever Survival (or un-manifested legacy links)
+  // Deterministic live Wikipedia fetch for Round 11+ in Forever Survival (or un-manifested legacy links)
   for (let probe = 0; probe < 5; probe++) {
     const probeRng = createSeededRng(`${challengeSeed}:live:${category}:${roundIndex}:p${probe}`);
     const concreteCategory = pickConcreteCategory(category, probeRng);
@@ -1029,7 +1190,13 @@ export async function getSeededChallengeRoundItem(
     // Canonical alphabetical sort BEFORE seeded shuffle guarantees every client picks the exact same item
     const parsedCandidates = pages
       .map(p => parseWikiBatchPageToItem(p, concreteCategory, source.expectedYear))
-      .filter((it): it is CulturalItem => Boolean(it && !manifestSlugs.has(it.wikiSlug)))
+      .filter((it): it is CulturalItem =>
+        Boolean(
+          it &&
+            !manifestSlugs.has(it.wikiSlug) &&
+            (!it.wikiPageId || !manifestPageIds.has(it.wikiPageId))
+        )
+      )
       .sort((a, b) => a.wikiSlug.localeCompare(b.wikiSlug));
 
     if (parsedCandidates.length > 0) {

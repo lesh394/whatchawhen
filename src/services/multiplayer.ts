@@ -6,7 +6,9 @@ export interface LockedRoundEntry {
   creator: string;
   year: number;
   category: WorkCategory;
+  pageId?: number;
   image?: string;
+  coverChanged?: boolean;
   genre?: string;
 }
 
@@ -14,6 +16,7 @@ export interface LockedDistractorEntry {
   category: WorkCategory;
   title: string;
   creator: string;
+  pageId?: number;
 }
 
 export interface MultiplayerChallenge {
@@ -216,10 +219,9 @@ export function expandImageUrl(token: string): string {
   return token;
 }
 
-// ---------------- BASE64URL & MANIFEST CODECS ----------------
+// ---------------- COMPACT BINARY URL & SCORE CODECS ----------------
 
-function toBase64Url(jsonText: string): string {
-  const bytes = new TextEncoder().encode(jsonText);
+function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = '';
   for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]);
@@ -227,15 +229,416 @@ function toBase64Url(jsonText: string): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
-function fromBase64Url(token: string): string | null {
+function base64UrlToBytes(token: string): Uint8Array | null {
   try {
-    const padded = token.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((token.length + 3) % 4);
+    const clean = token.trim();
+    const padded = clean.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((clean.length + 3) % 4);
     const binary = atob(padded);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
     }
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+function toBase64Url(jsonText: string): string {
+  return bytesToBase64Url(new TextEncoder().encode(jsonText));
+}
+
+function fromBase64Url(token: string): string | null {
+  const bytes = base64UrlToBytes(token);
+  if (!bytes) return null;
+  try {
     return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+class ByteWriter {
+  bytes: number[] = [];
+
+  u8(v: number) {
+    this.bytes.push(v & 0xff);
+  }
+
+  u16(v: number) {
+    this.bytes.push((v >>> 8) & 0xff, v & 0xff);
+  }
+
+  raw(arr: Uint8Array | number[]) {
+    for (let i = 0; i < arr.length; i++) {
+      this.bytes.push(arr[i] & 0xff);
+    }
+  }
+
+  varuint(v: number | bigint) {
+    let n = typeof v === 'bigint' ? v : BigInt(Math.max(0, Math.floor(v)));
+    if (n < 0n) n = 0n;
+    while (n >= 0x80n) {
+      this.bytes.push(Number(n & 0x7fn) | 0x80);
+      n >>= 7n;
+    }
+    this.bytes.push(Number(n));
+  }
+
+  str(s: string) {
+    const utf8 = new TextEncoder().encode(s);
+    this.varuint(utf8.length);
+    this.raw(utf8);
+  }
+
+  toUint8Array(): Uint8Array {
+    return new Uint8Array(this.bytes);
+  }
+}
+
+class ByteReader {
+  pos = 0;
+  constructor(public readonly buf: Uint8Array) {}
+
+  get hasMore(): boolean {
+    return this.pos < this.buf.length;
+  }
+
+  u8(): number {
+    if (this.pos >= this.buf.length) throw new Error('EOF');
+    return this.buf[this.pos++];
+  }
+
+  u16(): number {
+    const hi = this.u8();
+    const lo = this.u8();
+    return (hi << 8) | lo;
+  }
+
+  slice(len: number): Uint8Array {
+    if (len < 0 || this.pos + len > this.buf.length) throw new Error('EOF');
+    const out = this.buf.subarray(this.pos, this.pos + len);
+    this.pos += len;
+    return out;
+  }
+
+  varuint(): bigint {
+    let res = 0n;
+    let shift = 0n;
+    for (let i = 0; i < 10; i++) {
+      const b = this.u8();
+      res |= BigInt(b & 0x7f) << shift;
+      if ((b & 0x80) === 0) return res;
+      shift += 7n;
+    }
+    throw new Error('Malformed varint');
+  }
+
+  varnum(): number {
+    return Number(this.varuint());
+  }
+
+  str(): string {
+    const len = this.varnum();
+    const bytes = this.slice(len);
+    return new TextDecoder().decode(bytes);
+  }
+}
+
+const CAT_LIST: Category[] = ['music', 'books', 'art', 'everything'];
+const DIFF_LIST: Difficulty[] = ['normal', 'easy', 'hard'];
+const OL_SIZES = ['M', 'L', 'S'] as const;
+const CAA_SIZES = ['500', '250', '1200', ''] as const;
+const TIME_EPOCH_MS = 1700000000000;
+
+function catToNum(cat: Category): number {
+  const idx = CAT_LIST.indexOf(cat);
+  return idx >= 0 ? idx : 0;
+}
+
+function numToWorkCat(n: number): WorkCategory {
+  if (n === 1) return 'books';
+  if (n === 2) return 'art';
+  return 'music';
+}
+
+function tryPackRoomId8(id: string): Uint8Array | null {
+  if (id.length !== 8) return null;
+  let acc = 0n;
+  for (let i = 0; i < 8; i++) {
+    const idx = CODE_ALPHABET.indexOf(id[i]);
+    if (idx < 0) return null;
+    acc = (acc << 5n) | BigInt(idx);
+  }
+  return new Uint8Array([
+    Number((acc >> 32n) & 0xffn),
+    Number((acc >> 24n) & 0xffn),
+    Number((acc >> 16n) & 0xffn),
+    Number((acc >> 8n) & 0xffn),
+    Number(acc & 0xffn),
+  ]);
+}
+
+function unpackRoomId8(bytes: Uint8Array): string {
+  let acc = 0n;
+  for (let i = 0; i < 5; i++) {
+    acc = (acc << 8n) | BigInt(bytes[i]);
+  }
+  let out = '';
+  for (let shift = 35n; shift >= 0n; shift -= 5n) {
+    const idx = Number((acc >> shift) & 31n);
+    out += CODE_ALPHABET[idx];
+  }
+  return out;
+}
+
+function writeRoomId(w: ByteWriter, rawId: string): boolean {
+  const id = rawId.trim().toUpperCase();
+  const packed = tryPackRoomId8(id);
+  if (packed) {
+    w.raw(packed);
+    return true;
+  }
+  w.str(id);
+  return false;
+}
+
+function readRoomId(r: ByteReader, isPacked: boolean): string {
+  return isPacked ? unpackRoomId8(r.slice(5)) : r.str();
+}
+
+function hexUuidToBytes(uuid: string): Uint8Array | null {
+  const hex = uuid.replace(/-/g, '').toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(hex)) return null;
+  const out = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) {
+    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+function bytesToHexUuid(bytes: Uint8Array): string {
+  const h = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/**
+ * Encodes a Multiplayer room into a single compact URL token (`r=`).
+ * Live Wikipedia rounds encode purely as varint pageIds + 10-bit years + cover delta (~95-175 char links).
+ */
+export function encodeChallengeToken(challenge: MultiplayerChallenge): string {
+  const w = new ByteWriter();
+  const cleanId = challenge.id.trim().toUpperCase();
+  const idPacked = tryPackRoomId8(cleanId) !== null;
+  const isForever = challenge.gameMode === 'forever' ? 1 : 0;
+  const diffCode = Math.max(0, DIFF_LIST.indexOf(challenge.difficulty));
+  const catCode = catToNum(challenge.category);
+
+  // Byte 0: version(2b=1) | isForever(1b) | diff(2b) | cat(2b) | idPacked(1b)
+  w.u8((1 << 6) | (isForever << 5) | (diffCode << 3) | (catCode << 1) | (idPacked ? 1 : 0));
+  writeRoomId(w, cleanId);
+
+  const hostTrim = (challenge.hostName || '').trim().slice(0, 20);
+  const hasHost = hostTrim.length > 0 && hostTrim !== 'Player 1';
+  const manifest = challenge.manifest || [];
+  const distractors =
+    challenge.difficulty === 'easy' && challenge.distractors ? challenge.distractors : [];
+  const hasDistractors = distractors.length > 0;
+
+  w.u8((hasHost ? 0x80 : 0) | (hasDistractors ? 0x40 : 0) | (manifest.length & 0x3f));
+  if (hasHost) w.str(hostTrim);
+
+  for (const entry of manifest) {
+    const catN = catToNum(entry.category) & 0x3;
+    const yearOff = Math.max(0, Math.min(1023, Math.round((entry.year || 1980) - 1400)));
+
+    if (entry.pageId && entry.pageId > 0) {
+      let coverKind = 0;
+      let coverPayload: (() => void) | null = null;
+
+      if (entry.coverChanged && entry.image) {
+        const compacted = compactImageUrl(entry.image);
+        const olMatch = compacted.match(/^ol:(\d+)-([MLS])$/i);
+        const caMatch = compacted.match(
+          /^ca:(release(?:-group)?)\/([0-9a-f-]{36})\/(\d+)(?:-(\d+))?\.(jpg|png)$/i
+        );
+        if (olMatch) {
+          coverKind = 1;
+          const olId = BigInt(olMatch[1]);
+          const sizeIdx = BigInt(Math.max(0, OL_SIZES.indexOf(olMatch[2].toUpperCase() as 'M' | 'L' | 'S')));
+          coverPayload = () => w.varuint(olId * 4n + sizeIdx);
+        } else if (caMatch) {
+          const uuidBytes = hexUuidToBytes(caMatch[2]);
+          if (uuidBytes) {
+            coverKind = 2;
+            const isGroup = caMatch[1].toLowerCase() === 'release-group' ? 1 : 0;
+            const caaSizeIdx = Math.max(0, CAA_SIZES.indexOf((caMatch[4] || '') as typeof CAA_SIZES[number]));
+            const isPng = caMatch[5].toLowerCase() === 'png' ? 1 : 0;
+            const imgId = BigInt(caMatch[3]);
+            coverPayload = () => {
+              w.u8((isGroup << 3) | (caaSizeIdx << 1) | isPng);
+              w.raw(uuidBytes);
+              w.varuint(imgId);
+            };
+          } else {
+            coverKind = 3;
+            coverPayload = () => w.str(compacted);
+          }
+        } else {
+          coverKind = 3;
+          coverPayload = () => w.str(compacted);
+        }
+      }
+
+      // 16 bits: [isPageId:1][cat:2][coverKind:2][unused:1][yearOffset:10]
+      w.u16((1 << 15) | (catN << 13) | (coverKind << 11) | yearOff);
+      w.varuint(entry.pageId);
+      if (coverPayload) coverPayload();
+    } else {
+      // Offline/legacy fallback entry without pageId
+      w.u16((catN << 13) | yearOff);
+      w.str(entry.slug);
+      w.str(entry.creator);
+      w.str(entry.title !== entry.slug.replace(/_/g, ' ') ? entry.title : '');
+      w.str(entry.image ? compactImageUrl(entry.image) : '');
+    }
+  }
+
+  if (hasDistractors) {
+    w.u8(distractors.length);
+    for (const d of distractors) {
+      const catN = BigInt(catToNum(d.category) & 0x3);
+      if (d.pageId && d.pageId > 0) {
+        w.varuint((BigInt(d.pageId) << 3n) | (catN << 1n) | 1n);
+      } else {
+        w.varuint(catN << 1n);
+        w.str(d.title);
+        w.str(d.creator);
+      }
+    }
+  }
+
+  return bytesToBase64Url(w.toUint8Array());
+}
+
+export function decodeChallengeToken(rawToken: string): MultiplayerChallenge | null {
+  if (!rawToken || typeof rawToken !== 'string') return null;
+  const bytes = base64UrlToBytes(rawToken);
+  if (!bytes || bytes.length < 7) return null;
+
+  try {
+    const r = new ByteReader(bytes);
+    const meta1 = r.u8();
+    const version = (meta1 >>> 6) & 0x3;
+    if (version !== 1) return null;
+
+    const isForever = ((meta1 >>> 5) & 0x1) === 1;
+    const diffCode = (meta1 >>> 3) & 0x3;
+    const catCode = (meta1 >>> 1) & 0x3;
+    const idPacked = (meta1 & 0x1) === 1;
+
+    const id = readRoomId(r, idPacked);
+    if (!id || id.length < 4) return null;
+
+    const meta2 = r.u8();
+    const hasHost = (meta2 & 0x80) !== 0;
+    const hasDistractors = (meta2 & 0x40) !== 0;
+    const roundCount = meta2 & 0x3f;
+    const hostName = hasHost ? r.str() || 'Player 1' : 'Player 1';
+
+    const manifest: LockedRoundEntry[] = [];
+    for (let i = 0; i < roundCount; i++) {
+      const head = r.u16();
+      const isPageId = (head & 0x8000) !== 0;
+      const catN = (head >>> 13) & 0x3;
+      const coverKind = (head >>> 11) & 0x3;
+      const year = 1400 + (head & 0x3ff);
+      const entryCat = numToWorkCat(catN);
+
+      if (isPageId) {
+        const pageId = r.varnum();
+        let image: string | undefined;
+        let coverChanged = false;
+
+        if (coverKind === 1) {
+          const packedOl = r.varuint();
+          const olSize = OL_SIZES[Number(packedOl % 4n)] || 'M';
+          const olId = packedOl / 4n;
+          image = expandImageUrl(`ol:${olId}-${olSize}`);
+          coverChanged = true;
+        } else if (coverKind === 2) {
+          const caaMeta = r.u8();
+          const isGroup = ((caaMeta >>> 3) & 0x1) === 1;
+          const sizeStr = CAA_SIZES[(caaMeta >>> 1) & 0x3] || '';
+          const ext = (caaMeta & 0x1) === 1 ? 'png' : 'jpg';
+          const uuid = bytesToHexUuid(r.slice(16));
+          const imgId = r.varuint();
+          const kindPath = isGroup ? 'release-group' : 'release';
+          const suffix = sizeStr ? `-${sizeStr}` : '';
+          image = `https://coverartarchive.org/${kindPath}/${uuid}/${imgId}${suffix}.${ext}`;
+          coverChanged = true;
+        } else if (coverKind === 3) {
+          const tok = r.str();
+          image = tok ? expandImageUrl(tok) : undefined;
+          coverChanged = Boolean(image);
+        }
+
+        manifest.push({
+          pageId,
+          slug: '',
+          title: '',
+          creator: '',
+          year,
+          category: entryCat,
+          image,
+          coverChanged,
+        });
+      } else {
+        const slug = r.str();
+        const creator = r.str();
+        const rawTitle = r.str();
+        const imgTok = r.str();
+        manifest.push({
+          slug,
+          title: rawTitle || slug.replace(/_/g, ' '),
+          creator: creator || 'Acclaimed Creator',
+          year,
+          category: entryCat,
+          image: imgTok ? expandImageUrl(imgTok) : undefined,
+          coverChanged: Boolean(imgTok),
+        });
+      }
+    }
+
+    const distractors: LockedDistractorEntry[] = [];
+    if (hasDistractors && r.hasMore) {
+      const distCount = r.u8();
+      for (let i = 0; i < distCount; i++) {
+        const tag = r.varuint();
+        const isPageId = (tag & 1n) === 1n;
+        const entryCat = numToWorkCat(Number((tag >> 1n) & 3n));
+        if (isPageId) {
+          const pageId = Number(tag >> 3n);
+          distractors.push({ category: entryCat, pageId, title: '', creator: '' });
+        } else {
+          const title = r.str();
+          const creator = r.str();
+          if (title && creator) {
+            distractors.push({ category: entryCat, title, creator });
+          }
+        }
+      }
+    }
+
+    return {
+      id,
+      category: CAT_LIST[catCode] || 'music',
+      difficulty: DIFF_LIST[diffCode] || 'normal',
+      gameMode: isForever ? 'forever' : 'classic',
+      hostName,
+      manifest: manifest.length > 0 ? manifest : undefined,
+      distractors: distractors.length > 0 ? distractors : undefined,
+    };
   } catch {
     return null;
   }
@@ -303,6 +706,7 @@ export function decodeChallengeManifest(rawToken: string): {
         year,
         category,
         image: imageToken ? expandImageUrl(imageToken) : undefined,
+        coverChanged: Boolean(imageToken),
         genre,
       });
     }
@@ -329,7 +733,105 @@ export function decodeChallengeManifest(rawToken: string): {
   }
 }
 
-// ---------------- SCORE TOKENS (WW1 SINGLE & WW2 MULTI-PLAYER) ----------------
+// ---------------- COMPACT SCORE TOKENS (W3 BINARY + LEGACY WW1/WW2) ----------------
+
+function encodeCompactScoresBytes(
+  scores: MultiplayerScoreSummary[],
+  embeddedChallengeId?: string
+): Uint8Array {
+  const w = new ByteWriter();
+  const hasId = Boolean(embeddedChallengeId && embeddedChallengeId.trim().length > 0);
+  const cleanId = (embeddedChallengeId || '').trim().toUpperCase();
+  const idPacked = hasId && tryPackRoomId8(cleanId) !== null;
+  const list = scores.slice(0, 15);
+
+  // Header: version(2b=1) | hasId(1b) | idPacked(1b) | count(4b)
+  w.u8((1 << 6) | (hasId ? 0x20 : 0) | (idPacked ? 0x10 : 0) | (list.length & 0xf));
+  if (hasId) {
+    writeRoomId(w, cleanId);
+  }
+
+  for (const s of list) {
+    const rLen = s.roundScores.length;
+    const inlineLen = Math.min(31, rLen);
+    const sameSurvived = s.survived === s.roundsCompleted;
+    const flags =
+      (s.died ? 0x80 : 0) |
+      (s.gameMode === 'forever' ? 0x40 : 0) |
+      (sameSurvived ? 0x20 : 0) |
+      (inlineLen & 0x1f);
+    w.u8(flags);
+    if (rLen >= 31) w.varuint(rLen);
+
+    w.str(s.name.slice(0, 20));
+    w.str(s.playerId || '');
+    w.varuint(s.score);
+    w.varuint(s.roundsCompleted);
+    if (!sameSurvived) w.varuint(s.survived);
+    w.varuint(Math.max(0, Math.round((s.finishedAt || Date.now()) - TIME_EPOCH_MS)));
+
+    for (const pts of s.roundScores) {
+      w.varuint(Math.max(0, Math.round(pts)));
+    }
+  }
+
+  return w.toUint8Array();
+}
+
+function decodeCompactScoresBytes(
+  bytes: Uint8Array,
+  fallbackChallengeId = ''
+): MultiplayerScoreSummary[] {
+  try {
+    const r = new ByteReader(bytes);
+    const header = r.u8();
+    const version = (header >>> 6) & 0x3;
+    if (version !== 1) return [];
+
+    const hasId = (header & 0x20) !== 0;
+    const idPacked = (header & 0x10) !== 0;
+    const count = header & 0xf;
+    const challengeId = hasId ? readRoomId(r, idPacked) : fallbackChallengeId;
+
+    const out: MultiplayerScoreSummary[] = [];
+    for (let i = 0; i < count; i++) {
+      const flags = r.u8();
+      const died = (flags & 0x80) !== 0;
+      const gameMode: GameMode = (flags & 0x40) !== 0 ? 'forever' : 'classic';
+      const sameSurvived = (flags & 0x20) !== 0;
+      const inlineLen = flags & 0x1f;
+      const roundScoresLen = inlineLen >= 31 ? r.varnum() : inlineLen;
+
+      const name = r.str() || 'Friend';
+      const rawPid = r.str();
+      const score = r.varnum();
+      const roundsCompleted = r.varnum();
+      const survived = sameSurvived ? roundsCompleted : r.varnum();
+      const finishedAt = TIME_EPOCH_MS + r.varnum();
+
+      const roundScores: number[] = [];
+      for (let k = 0; k < roundScoresLen; k++) {
+        roundScores.push(r.varnum());
+      }
+
+      out.push({
+        challengeId,
+        name,
+        score,
+        roundsCompleted,
+        survived,
+        died,
+        gameMode,
+        roundScores,
+        finishedAt,
+        playerId: rawPid || undefined,
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
 
 function parseSingleCompactScore(
   data: any,
@@ -353,44 +855,15 @@ function parseSingleCompactScore(
 }
 
 export function encodeResultToken(summary: MultiplayerScoreSummary): string {
-  const compact = {
-    c: summary.challengeId,
-    n: summary.name.slice(0, 20),
-    s: summary.score,
-    r: summary.roundsCompleted,
-    v: summary.survived,
-    d: summary.died ? 1 : 0,
-    m: summary.gameMode === 'forever' ? 'f' : 'c',
-    p: summary.roundScores,
-    t: summary.finishedAt,
-    ...(summary.playerId ? { i: summary.playerId } : {}),
-  };
-  return `WW1:${toBase64Url(JSON.stringify(compact))}`;
+  return encodeLeaderboardToken(summary.challengeId, [summary]);
 }
 
 export function encodeLeaderboardToken(
   challengeId: string,
   scores: MultiplayerScoreSummary[]
 ): string {
-  const unique = mergeChallengeScores(challengeId, scores).slice(0, 16);
-  if (unique.length === 1) {
-    return encodeResultToken(unique[0]);
-  }
-  const payload = {
-    c: challengeId,
-    l: unique.map(s => ({
-      n: s.name.slice(0, 20),
-      s: s.score,
-      r: s.roundsCompleted,
-      v: s.survived,
-      d: s.died ? 1 : 0,
-      m: s.gameMode === 'forever' ? 'f' : 'c',
-      p: s.roundScores,
-      t: s.finishedAt,
-      ...(s.playerId ? { i: s.playerId } : {}),
-    })),
-  };
-  return `WW2:${toBase64Url(JSON.stringify(payload))}`;
+  const unique = mergeChallengeScores(challengeId, scores).slice(0, 15);
+  return `W3:${bytesToBase64Url(encodeCompactScoresBytes(unique, challengeId))}`;
 }
 
 export function decodeScoreInput(rawInput: string): MultiplayerScoreSummary[] {
@@ -398,18 +871,63 @@ export function decodeScoreInput(rawInput: string): MultiplayerScoreSummary[] {
   const trimmed = rawInput.trim();
   if (!trimmed) return [];
 
-  let token = trimmed;
-  if (trimmed.includes('opp=')) {
-    try {
-      const url = trimmed.startsWith('http')
-        ? new URL(trimmed)
-        : new URL(trimmed, 'http://localhost');
-      const oppParam = url.searchParams.get('opp');
-      if (oppParam) token = oppParam;
-    } catch {
-      const m = trimmed.match(/[?&]opp=([^&\s]+)/);
-      if (m) token = decodeURIComponent(m[1]);
+  let candidate = trimmed;
+  if (/\s/.test(trimmed)) {
+    const urls = trimmed.match(/https?:\/\/\S+/gi) || [];
+    const scoreUrl = urls.find(u => /[?&](?:s|opp)=/i.test(u));
+    if (scoreUrl) {
+      candidate = scoreUrl.replace(/[),.;!?]+$/, '');
+    } else {
+      const codeMatch = trimmed.match(/\b(?:W3|WW[12]):[A-Za-z0-9_-]+/);
+      if (codeMatch) {
+        candidate = codeMatch[0];
+      } else if (urls[0]) {
+        candidate = urls[0].replace(/[),.;!?]+$/, '');
+      }
     }
+  }
+
+  let token = candidate;
+  let urlChallengeId = '';
+  if (candidate.includes('r=') || candidate.includes('s=') || candidate.includes('opp=')) {
+    try {
+      const url = candidate.startsWith('http')
+        ? new URL(candidate)
+        : new URL(candidate, 'http://localhost');
+      const rParam = url.searchParams.get('r');
+      if (rParam) {
+        urlChallengeId = decodeChallengeToken(rParam)?.id || '';
+      } else {
+        urlChallengeId = (url.searchParams.get('ch') || '').trim().toUpperCase();
+      }
+      const sParam = url.searchParams.get('s');
+      const oppParam = url.searchParams.get('opp');
+      if (sParam) {
+        token = `W3URL:${sParam}`;
+      } else if (oppParam) {
+        token = oppParam;
+      }
+    } catch {
+      const sM = candidate.match(/[?&]s=([^&\s]+)/);
+      const rM = candidate.match(/[?&]r=([^&\s]+)/);
+      if (rM) urlChallengeId = decodeChallengeToken(decodeURIComponent(rM[1]))?.id || '';
+      if (sM) {
+        token = `W3URL:${decodeURIComponent(sM[1])}`;
+      } else {
+        const oppM = candidate.match(/[?&]opp=([^&\s]+)/);
+        if (oppM) token = decodeURIComponent(oppM[1]);
+      }
+    }
+  }
+
+  if (token.startsWith('W3URL:')) {
+    const bytes = base64UrlToBytes(token.slice(6));
+    return bytes ? decodeCompactScoresBytes(bytes, urlChallengeId) : [];
+  }
+
+  if (token.startsWith('W3:')) {
+    const bytes = base64UrlToBytes(token.slice(3));
+    return bytes ? decodeCompactScoresBytes(bytes, urlChallengeId) : [];
   }
 
   if (token.startsWith('WW2:')) {
@@ -439,7 +957,7 @@ export function decodeScoreInput(rawInput: string): MultiplayerScoreSummary[] {
 
   try {
     const data = JSON.parse(decoded);
-    const single = parseSingleCompactScore(data);
+    const single = parseSingleCompactScore(data, urlChallengeId);
     return single ? [single] : [];
   } catch {
     return [];
@@ -459,31 +977,19 @@ export function buildChallengeUrl(
       ? `${window.location.origin}${window.location.pathname}`
       : 'http://localhost:5173/';
 
-  const params = new URLSearchParams();
-  params.set('ch', challenge.id);
-  params.set('cat', challenge.category);
-  params.set('diff', challenge.difficulty);
-  params.set('mode', challenge.gameMode);
-  if (challenge.hostName.trim()) {
-    params.set('host', challenge.hostName.trim().slice(0, 20));
-  }
-  if (challenge.manifest && challenge.manifest.length > 0) {
-    params.set('m', encodeChallengeManifest(challenge.manifest, challenge.distractors));
-  }
+  const roomToken = encodeChallengeToken(challenge);
+  let url = `${origin}?r=${roomToken}`;
 
   if (myResultOrScores) {
-    if (Array.isArray(myResultOrScores)) {
-      if (myResultOrScores.length === 1) {
-        params.set('opp', encodeResultToken(myResultOrScores[0]));
-      } else if (myResultOrScores.length > 1) {
-        params.set('opp', encodeLeaderboardToken(challenge.id, myResultOrScores));
-      }
-    } else {
-      params.set('opp', encodeResultToken(myResultOrScores));
+    const rawList = Array.isArray(myResultOrScores) ? myResultOrScores : [myResultOrScores];
+    const unique = mergeChallengeScores(challenge.id, rawList).slice(0, 15);
+    if (unique.length > 0) {
+      const scoreParam = bytesToBase64Url(encodeCompactScoresBytes(unique));
+      url += `&s=${scoreParam}`;
     }
   }
 
-  return `${origin}?${params.toString()}`;
+  return url;
 }
 
 export function parseChallengeFromLocation(
@@ -503,6 +1009,32 @@ export function parseChallengeFromLocation(
   if (!query) return null;
 
   const params = new URLSearchParams(query);
+
+  // 1. New compact binary link (?r=...&s=...)
+  const rParam = params.get('r');
+  if (rParam) {
+    const decodedChallenge = decodeChallengeToken(rParam);
+    if (decodedChallenge) {
+      const sParam = params.get('s');
+      const oppParam = params.get('opp');
+      let opponentResults: MultiplayerScoreSummary[] = [];
+      if (sParam) {
+        const bytes = base64UrlToBytes(sParam);
+        if (bytes) {
+          opponentResults = decodeCompactScoresBytes(bytes, decodedChallenge.id);
+        }
+      } else if (oppParam) {
+        opponentResults = decodeScoreInput(oppParam);
+      }
+      return {
+        challenge: decodedChallenge,
+        opponentResults,
+        opponentResult: opponentResults[0],
+      };
+    }
+  }
+
+  // 2. Legacy query format (?ch=...&cat=...&m=...&opp=...)
   const id = (params.get('ch') || '').trim().toUpperCase();
   if (!id || id.length < 4) return null;
 

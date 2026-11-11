@@ -62,12 +62,25 @@ export const GamePlayRound: React.FC<GamePlayRoundProps> = ({
       challenge && typeof roundIndex === 'number'
         ? `${challenge.id}:easy:${roundIndex}`
         : undefined;
+    const targetTitleLower = item.title.trim().toLowerCase();
+    const lockedRoomPool: EasyDistractorSource[] = challenge
+      ? [...(challenge.distractors || []), ...(challenge.manifest || [])]
+      : [];
+    const matchingLockedCount = new Set(
+      lockedRoomPool
+        .filter(
+          d =>
+            (!d.category || d.category === item.category) &&
+            Boolean(d.title) &&
+            Boolean(d.creator) &&
+            d.title.trim().toLowerCase() !== targetTitleLower
+        )
+        .map(d => d.title.trim().toLowerCase())
+    ).size;
     const primaryPool: EasyDistractorSource[] = challenge
-      ? [
-          ...(challenge.distractors || []),
-          ...(challenge.manifest || []),
-          ...(easyLivePool || []),
-        ]
+      ? matchingLockedCount >= 3
+        ? lockedRoomPool
+        : [...lockedRoomPool, ...(easyLivePool || [])]
       : easyLivePool || [];
     return generateEasyOptions(item, primaryPool, easySeed, fallbackCatalogItems || []);
   }, [item, difficulty, easyLivePool, fallbackCatalogItems, challenge, roundIndex]);
